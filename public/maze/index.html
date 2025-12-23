@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
+    <title>迷宫大作战 (Pro版)</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #1a1a1a; color: #fff; overflow: hidden; touch-action: none; width: 100vw; height: 100vh; display: flex; font-family: 'Segoe UI', sans-serif;}
+        
+        #portrait-warning { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 999; flex-direction: column; justify-content: center; align-items: center; }
+        @media screen and (orientation: portrait) { #portrait-warning { display: flex; } #game-ui { display: none !important; } }
+
+        #game-ui { display: flex; width: 100%; height: 100%; padding: 10px; justify-content: space-between; }
+        .control-area { flex: 1; display: flex; justify-content: center; align-items: center; }
+        .d-pad { display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px); gap: 8px; }
+        .btn { background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 15px; display: flex; justify-content: center; align-items: center; font-size: 30px; color: #ddd; backdrop-filter: blur(4px); transition: 0.1s; }
+        .btn:active { background: #f1c40f; color: #000; transform: scale(0.95); }
+        #btn-up { grid-column: 2; grid-row: 1; } #btn-left { grid-column: 1; grid-row: 2; }
+        #btn-right { grid-column: 3; grid-row: 2; } #btn-down { grid-column: 2; grid-row: 3; }
+
+        #canvas-wrapper { flex: 2; background: #000; border: 4px solid #444; border-radius: 10px; margin: 0 20px; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 30px rgba(0,0,0,0.6); position: relative; }
+        canvas { display: block; image-rendering: pixelated; }
+
+        .back-btn { position: fixed; top: 15px; left: 15px; padding: 8px 15px; background: #e74c3c; border-radius: 20px; font-size: 14px; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-weight: bold; }
+
+        /* 🏆 胜利提示层 */
+        #win-overlay {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 200;
+            flex-direction: column; justify-content: center; align-items: center;
+            animation: fadeIn 0.3s;
+        }
+        #win-overlay h1 { font-size: 40px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f; margin-bottom: 10px; }
+        #win-overlay p { font-size: 20px; color: #fff; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="portrait-warning"><h2 style="color:#f1c40f;">📱 请旋转手机</h2></div>
+    
+    <div id="win-overlay">
+        <h1>👑 胜利！</h1>
+        <p id="winner-name">玩家 XXX 到达了终点</p>
+        <p style="font-size: 14px; color: #aaa; margin-top: 20px;">3秒后开始新赛季...</p>
+    </div>
+
+    <div class="back-btn" onclick="location.href='../index.html'">⬅ 返回大厅</div>
+
+    <div id="game-ui">
+        <div class="control-area">
+            <div class="d-pad">
+                <div class="btn" id="btn-up">▲</div>
+                <div class="btn" id="btn-left">◀</div>
+                <div class="btn" id="btn-right">▶</div>
+                <div class="btn" id="btn-down">▼</div>
+            </div>
+        </div>
+        <div id="canvas-wrapper"><canvas id="gameCanvas"></canvas></div>
+        <div class="control-area" style="flex-direction: column; font-size: 14px; color: #aaa;">
+            <p>你的机体</p>
+            <div id="my-color" style="width:50px; height:50px; border-radius:50%; border:4px solid #fff; box-shadow: 0 0 15px rgba(255,255,255,0.3);"></div>
+            <p style="margin-top: 20px; color: #2ecc71;">目标：绿色方块</p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // ==============================================
+        // ⚠️【打包APP必改】⚠️
+        // ==============================================
+        const socket = io('/maze'); 
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const wrapper = document.getElementById('canvas-wrapper');
+        const winOverlay = document.getElementById('win-overlay');
+        
+        let gameState = { maze: [], players: {}, startPoint: {}, endPoint: {} };
+        let selfId = null, gridSize = 20, CELL_SIZE = 20;
+
+        function resize() {
+            if(!wrapper.clientWidth) return;
+            const size = Math.min(wrapper.clientWidth, wrapper.clientHeight) - 20;
+            CELL_SIZE = Math.floor(size / gridSize);
+            canvas.width = CELL_SIZE * gridSize;
+            canvas.height = CELL_SIZE * gridSize;
+            draw();
+        }
+
+        function draw() {
+            if(!gameState.maze.length) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. 画迷宫墙
+            ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.lineCap = 'square'; ctx.beginPath();
+            for(let y=0; y<gridSize; y++) {
+                for(let x=0; x<gridSize; x++) {
+                    let c = gameState.maze[y][x], px=x*CELL_SIZE, py=y*CELL_SIZE;
+                    if(c.walls.bottom) { ctx.moveTo(px, py+CELL_SIZE); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
+                    if(c.walls.right) { ctx.moveTo(px+CELL_SIZE, py); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
+                    if(y===0 && c.walls.top) { ctx.moveTo(px, py); ctx.lineTo(px+CELL_SIZE, py); }
+                    if(x===0 && c.walls.left) { ctx.moveTo(px, py); ctx.lineTo(px, py+CELL_SIZE); }
+                }
+            }
+            ctx.stroke();
+
+            // 2. 画终点 (绿色发光格子)
+            if(gameState.endPoint) {
+                let ex = gameState.endPoint.x * CELL_SIZE;
+                let ey = gameState.endPoint.y * CELL_SIZE;
+                ctx.fillStyle = 'rgba(46, 204, 113, 0.4)'; // 半透明绿
+                ctx.fillRect(ex, ey, CELL_SIZE, CELL_SIZE);
+                ctx.strokeStyle = '#2ecc71';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(ex+2, ey+2, CELL_SIZE-4, CELL_SIZE-4);
+            }
+
+            // 3. 画玩家
+            for(let id in gameState.players) {
+                let p = gameState.players[id];
+                // 增加平滑过渡效果 (简单的插值可以后续加，这里先直接渲染)
+                let cx = p.gridX * CELL_SIZE + CELL_SIZE/2;
+                let cy = p.gridY * CELL_SIZE + CELL_SIZE/2;
+                
+                ctx.fillStyle = p.color; ctx.beginPath();
+                ctx.arc(cx, cy, CELL_SIZE*0.35, 0, Math.PI*2); ctx.fill();
+                if(id === selfId) { ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.stroke(); }
+            }
+        }
+
+        // 🎮 专业版移动：只发指令，不发坐标
+        function sendMove(dir) {
+            // 前端先做个简单的预判（Client Prediction），让手感不卡顿
+            // 但如果撞墙了，还是以服务器返回为准
+            // 为了代码简洁，这里我们直接发指令，等待服务器广播回来再渲染
+            // 局域网下延迟极低，几乎感觉不到卡顿
+            socket.emit('playerMoveAction', dir);
+        }
+
+        // === Socket 事件监听 ===
+        socket.on('init', d => {
+            selfId = d.selfId;
+            gameState = d.gameState;
+            gridSize = d.gridSize;
+            resize();
+            if(gameState.players[selfId]) document.getElementById('my-color').style.background = gameState.players[selfId].color;
+            winOverlay.style.display = 'none'; // 隐藏胜利弹窗
+        });
+
+        socket.on('newPlayer', p => { gameState.players[p.id] = p; draw(); });
+        
+        // 监听移动 (这是服务器确认后的位置)
+        socket.on('playerMoved', d => {
+            if(gameState.players[d.id]) {
+                gameState.players[d.id].gridX = d.gridX;
+                gameState.players[d.id].gridY = d.gridY;
+                draw();
+            }
+        });
+
+        socket.on('playerDisconnected', id => { delete gameState.players[id]; draw(); });
+
+        // 🎉 监听胜利
+        socket.on('gameWon', d => {
+            let winner = gameState.players[d.winnerId];
+            let name = (d.winnerId === selfId) ? "你" : "对手";
+            document.getElementById('winner-name').innerText = `${name} 赢了！`;
+            document.getElementById('winner-name').style.color = winner.color;
+            winOverlay.style.display = 'flex';
+        });
+
+        // 🔄 监听重开
+        socket.on('gameRestart', newState => {
+            gameState = newState;
+            winOverlay.style.display = 'none';
+            draw();
+        });
+
+        // 绑定操作
+        window.onresize = resize;
+        window.addEventListener('orientationchange', () => setTimeout(resize, 500));
+        
+        const bind = (id, dir) => {
+            let b = document.getElementById(id);
+            let action = (e) => { e.preventDefault(); sendMove(dir); };
+            b.addEventListener('touchstart', action);
+            b.addEventListener('mousedown', action);
+        };
+        bind('btn-up', 'up'); bind('btn-down', 'down');
+        bind('btn-left', 'left'); bind('btn-right', 'right');
+        
+        // 键盘支持
+        document.addEventListener('keydown', e => {
+            if(e.key==='w'||e.key==='ArrowUp') sendMove('up');
+            if(e.key==='s'||e.key==='ArrowDown') sendMove('down');
+            if(e.key==='a'||e.key==='ArrowLeft') sendMove('left');
+            if(e.key==='d'||e.key==='ArrowRight') sendMove('right');
+        });
+    </script>
+</body>
+</html>
