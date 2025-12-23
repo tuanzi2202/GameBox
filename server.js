@@ -9,25 +9,22 @@ const path = require('path');
 const PORT = 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ==========================================
-// 🎮 迷宫频道：逻辑核心
-// ==========================================
 const mazeIo = io.of('/maze');
+// 🔥 升级：地图扩大到 30x30，配合手机端摄像机模式
+const GRID_SIZE = 30; 
+const MOVE_COOLDOWN = 80; // 手感优化：稍微加快一点节奏
 
-const GRID_SIZE = 20;
 let gameState = {
     maze: [],
     players: {},
     startPoint: { x: 0, y: 0 },
-    endPoint: { x: 19, y: 19 },
-    winner: null // 记录当前有没有人赢
+    endPoint: { x: GRID_SIZE-1, y: GRID_SIZE-1 },
+    winner: null 
 };
 
-// --- 专业算法：带起点终点的迷宫生成 ---
 function generateMaze() {
-    console.log("正在构建新赛季地图...");
+    console.log("正在构建新赛季巨型地图...");
     let grid = [];
-    // 1. 初始化全墙
     for (let y = 0; y < GRID_SIZE; y++) {
         let row = [];
         for (let x = 0; x < GRID_SIZE; x++) {
@@ -36,7 +33,7 @@ function generateMaze() {
         grid.push(row);
     }
 
-    // 2. DFS 生成
+    // DFS 生成主路径
     function visit(cell) {
         cell.visited = true;
         const neighbors = [
@@ -55,52 +52,47 @@ function generateMaze() {
         }
     }
     
-    // 3. 设定起点(左上)和终点(右下)
-    let start = { x: 0, y: 0 };
-    let end = { x: GRID_SIZE - 1, y: GRID_SIZE - 1 };
-    
+    let start = { x: 1, y: 1 }; //稍微往里一点
     visit(grid[start.y][start.x]);
 
-    // 4. 打一些随机洞，防止太难
-    for(let i=0; i<GRID_SIZE*3; i++) {
+    // 🔥 玩法优化：打更多的洞，让地图更像“开阔迷宫”而不是死胡同迷宫
+    // 增加追逐和绕路的可能性
+    for(let i=0; i<GRID_SIZE*10; i++) {
         let rx = Math.floor(Math.random()*(GRID_SIZE-1));
         let ry = Math.floor(Math.random()*(GRID_SIZE-1));
         if(Math.random()>0.5) grid[ry][rx].walls.right = grid[ry][rx+1].walls.left = false;
         else grid[ry][rx].walls.bottom = grid[ry+1][rx].walls.top = false;
     }
 
-    // 更新全局状态
     gameState.maze = grid;
     gameState.startPoint = start;
-    gameState.endPoint = end;
+    gameState.endPoint = { x: GRID_SIZE - 2, y: GRID_SIZE - 2 };
     gameState.winner = null;
 
-    // 重置所有在线玩家位置到起点
+    // 重置所有玩家
     for (let id in gameState.players) {
-        gameState.players[id].gridX = start.x;
-        gameState.players[id].gridY = start.y;
+        let p = gameState.players[id];
+        p.gridX = start.x;
+        p.gridY = start.y;
+        p.lastMoveTime = 0;
     }
 
     return gameState;
 }
 
-// 启动生成
 generateMaze();
 
-// --- 核心逻辑处理 ---
 mazeIo.on('connection', (socket) => {
-    console.log(`[迷宫] 勇士 ${socket.id} 加入`);
-
-    // 1. 玩家出生 (出生在起点)
+    // 随机分配一个鲜艳的颜色
+    const hue = Math.floor(Math.random() * 360);
     gameState.players[socket.id] = {
         id: socket.id,
         gridX: gameState.startPoint.x,
         gridY: gameState.startPoint.y,
-        color: `hsl(${Math.random() * 360}, 100%, 50%)`,
-        score: 0
+        color: `hsl(${hue}, 80%, 60%)`, // 这种颜色在黑底上更好看
+        lastMoveTime: 0
     };
 
-    // 2. 发送完整游戏状态 (地图、终点、玩家)
     socket.emit('init', {
         selfId: socket.id,
         gameState: gameState,
@@ -108,52 +100,43 @@ mazeIo.on('connection', (socket) => {
     });
     socket.broadcast.emit('newPlayer', gameState.players[socket.id]);
 
-    // 3. 【防作弊核心】监听移动指令 (只接收方向，不接收坐标)
     socket.on('playerMoveAction', (direction) => {
         let player = gameState.players[socket.id];
-        if (!player || gameState.winner) return; // 赢了就冻结游戏
+        if (!player || gameState.winner) return;
+
+        const now = Date.now();
+        if (now - player.lastMoveTime < MOVE_COOLDOWN) return; 
 
         let currentX = player.gridX;
         let currentY = player.gridY;
         let targetX = currentX;
         let targetY = currentY;
 
-        // 计算目标位置
         if (direction === 'up') targetY -= 1;
         if (direction === 'down') targetY += 1;
         if (direction === 'left') targetX -= 1;
         if (direction === 'right') targetX += 1;
 
-        // 3.1 边界检查
         if (targetX < 0 || targetX >= GRID_SIZE || targetY < 0 || targetY >= GRID_SIZE) return;
 
-        // 3.2 墙壁碰撞检查 (服务端校验！)
         let cell = gameState.maze[currentY][currentX];
-        let targetCell = gameState.maze[targetY][targetX];
         let blocked = false;
 
-        if (direction === 'up') { if (targetCell.walls.bottom) blocked = true; } 
+        if (direction === 'up') { if (cell.walls.top) blocked = true; }
         else if (direction === 'down') { if (cell.walls.bottom) blocked = true; }
-        else if (direction === 'left') { if (targetCell.walls.right) blocked = true; }
+        else if (direction === 'left') { if (cell.walls.left) blocked = true; }
         else if (direction === 'right') { if (cell.walls.right) blocked = true; }
 
         if (!blocked) {
-            // 允许移动
             player.gridX = targetX;
             player.gridY = targetY;
+            player.lastMoveTime = now;
 
-            // 广播新位置
             mazeIo.emit('playerMoved', { id: socket.id, gridX: targetX, gridY: targetY });
 
-            // 3.3 胜利检测
             if (targetX === gameState.endPoint.x && targetY === gameState.endPoint.y) {
-                console.log(`玩家 ${socket.id} 获胜！`);
                 gameState.winner = socket.id;
-                
-                // 广播胜利消息
                 mazeIo.emit('gameWon', { winnerId: socket.id });
-
-                // 3秒后自动开始新的一局
                 setTimeout(() => {
                     generateMaze();
                     mazeIo.emit('gameRestart', gameState);
@@ -169,5 +152,5 @@ mazeIo.on('connection', (socket) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\n👵 太奶的专业版游戏盒子已启动！端口: ${PORT}\n`);
+    console.log(`\n🚀 游戏升级版已启动: http://localhost:${PORT}\n`);
 });

@@ -2,102 +2,184 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=landscape">
-    <title>迷宫大作战 (Pro版)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <title>迷宫大作战 (Fix v2)</title>
     <style>
-        * { box-sizing: border-box; }
-        body { margin: 0; background: #1a1a1a; color: #fff; overflow: hidden; touch-action: none; width: 100vw; height: 100vh; display: flex; font-family: 'Segoe UI', sans-serif;}
+        * { box-sizing: border-box; touch-action: none; user-select: none; -webkit-user-select: none; }
         
-        #portrait-warning { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 999; flex-direction: column; justify-content: center; align-items: center; }
-        @media screen and (orientation: portrait) { #portrait-warning { display: flex; } #game-ui { display: none !important; } }
-
-        #game-ui { display: flex; width: 100%; height: 100%; padding: 10px; justify-content: space-between; }
-        .control-area { flex: 1; display: flex; justify-content: center; align-items: center; }
-        .d-pad { display: grid; grid-template-columns: repeat(3, 70px); grid-template-rows: repeat(3, 70px); gap: 8px; }
-        .btn { background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.2); border-radius: 15px; display: flex; justify-content: center; align-items: center; font-size: 30px; color: #ddd; backdrop-filter: blur(4px); transition: 0.1s; }
-        .btn:active { background: #f1c40f; color: #000; transform: scale(0.95); }
-        #btn-up { grid-column: 2; grid-row: 1; } #btn-left { grid-column: 1; grid-row: 2; }
-        #btn-right { grid-column: 3; grid-row: 2; } #btn-down { grid-column: 2; grid-row: 3; }
-
-        #canvas-wrapper { flex: 2; background: #000; border: 4px solid #444; border-radius: 10px; margin: 0 20px; display: flex; justify-content: center; align-items: center; box-shadow: 0 0 30px rgba(0,0,0,0.6); position: relative; }
-        canvas { display: block; image-rendering: pixelated; }
-
-        .back-btn { position: fixed; top: 15px; left: 15px; padding: 8px 15px; background: #e74c3c; border-radius: 20px; font-size: 14px; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.3); font-weight: bold; }
-
-        /* 🏆 胜利提示层 */
-        #win-overlay {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); z-index: 200;
-            flex-direction: column; justify-content: center; align-items: center;
-            animation: fadeIn 0.3s;
+        body { 
+            margin: 0; background: #000; color: #fff; overflow: hidden; 
+            width: 100vw; height: 100dvh; /* 使用 dvh 适配手机 */
+            display: flex; font-family: 'Segoe UI', sans-serif;
         }
-        #win-overlay h1 { font-size: 40px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f; margin-bottom: 10px; }
-        #win-overlay p { font-size: 20px; color: #fff; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        #canvas-wrapper { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; z-index: 1;
+        }
+
+        canvas { display: block; }
+
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; padding: 20px;
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            z-index: 10;
+        }
+
+        .hud-top { display: flex; justify-content: space-between; align-items: flex-start; }
+
+        .back-btn { 
+            pointer-events: auto;
+            background: rgba(231, 76, 60, 0.9); padding: 8px 16px; border-radius: 20px; 
+            font-size: 14px; font-weight: bold; box-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
+            backdrop-filter: blur(4px); cursor: pointer; border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .status-panel {
+            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px;
+            font-size: 12px; color: #ccc; backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1); text-align: right;
+        }
+
+        #virtual-controls {
+            position: absolute; bottom: 20px; left: 20px;
+            display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px);
+            gap: 5px; pointer-events: auto; 
+            opacity: 0.5; transition: opacity 0.3s;
+            transform: scale(0.7); transform-origin: bottom left; 
+        }
+        #virtual-controls:active { opacity: 0.9; }
+        .v-btn {
+            background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 24px; color: #fff;
+        }
+        #vb-up { grid-column: 2; grid-row: 1; }
+        #vb-left { grid-column: 1; grid-row: 2; }
+        #vb-right { grid-column: 3; grid-row: 2; }
+        #vb-down { grid-column: 2; grid-row: 3; }
+
+        #message-overlay {
+            position: absolute; top: 35%; width: 100%; text-align: center;
+            pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 20;
+        }
+        #message-overlay h1 { 
+            font-size: 40px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f; margin: 0;
+            -webkit-text-stroke: 1px rgba(0,0,0,0.8);
+        }
+
+        #portrait-warning {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 999; justify-content: center; align-items: center;
+            flex-direction: column; text-align: center;
+        }
+        @media screen and (orientation: portrait) { #portrait-warning { display: flex; } }
     </style>
 </head>
 <body>
 
-    <div id="portrait-warning"><h2 style="color:#f1c40f;">📱 请旋转手机</h2></div>
-    
-    <div id="win-overlay">
-        <h1>👑 胜利！</h1>
-        <p id="winner-name">玩家 XXX 到达了终点</p>
-        <p style="font-size: 14px; color: #aaa; margin-top: 20px;">3秒后开始新赛季...</p>
+    <div id="portrait-warning">
+        <h2 style="color:#f1c40f;">📱 请旋转手机</h2>
+        <p style="color:#666;">横屏游玩体验更佳</p>
     </div>
 
-    <div class="back-btn" onclick="location.href='../index.html'">⬅ 返回大厅</div>
+    <div id="canvas-wrapper"><canvas id="gameCanvas"></canvas></div>
 
-    <div id="game-ui">
-        <div class="control-area">
-            <div class="d-pad">
-                <div class="btn" id="btn-up">▲</div>
-                <div class="btn" id="btn-left">◀</div>
-                <div class="btn" id="btn-right">▶</div>
-                <div class="btn" id="btn-down">▼</div>
+    <div id="ui-layer">
+        <div class="hud-top">
+            <div class="back-btn" onclick="location.href='../index.html'">⬅ 退出</div>
+            <div class="status-panel">
+                <div style="color: #2ecc71; font-size: 14px; font-weight: bold; margin-bottom: 4px;">目标：绿色光柱</div>
+                <div id="conn-status">连接中...</div>
             </div>
         </div>
-        <div id="canvas-wrapper"><canvas id="gameCanvas"></canvas></div>
-        <div class="control-area" style="flex-direction: column; font-size: 14px; color: #aaa;">
-            <p>你的机体</p>
-            <div id="my-color" style="width:50px; height:50px; border-radius:50%; border:4px solid #fff; box-shadow: 0 0 15px rgba(255,255,255,0.3);"></div>
-            <p style="margin-top: 20px; color: #2ecc71;">目标：绿色方块</p>
+
+        <div id="message-overlay">
+            <h1 id="win-text">胜利！</h1>
+            <p style="color:#fff; text-shadow:0 0 5px #000;">即将开始新一局...</p>
+        </div>
+
+        <div id="virtual-controls">
+            <div class="v-btn" id="vb-up">▲</div>
+            <div class="v-btn" id="vb-left">◀</div>
+            <div class="v-btn" id="vb-right">▶</div>
+            <div class="v-btn" id="vb-down">▼</div>
         </div>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // ==============================================
-        // ⚠️【打包APP必改】⚠️
-        // ==============================================
         const socket = io('/maze'); 
-
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const wrapper = document.getElementById('canvas-wrapper');
-        const winOverlay = document.getElementById('win-overlay');
-        
+        const msgOverlay = document.getElementById('message-overlay');
+        const connStatus = document.getElementById('conn-status');
+
         let gameState = { maze: [], players: {}, startPoint: {}, endPoint: {} };
-        let selfId = null, gridSize = 20, CELL_SIZE = 20;
+        let selfId = null;
+        let gridSize = 30; 
+        let CELL_SIZE = 40; 
+        
+        let playersRender = {}; 
+        let camera = { x: 0, y: 0 };
+        
+        // 🔥 修复2：客户端防抖节流
+        // 允许按住键盘，但限制发送频率，防止发包过快导致的卡顿
+        let lastMoveTime = 0;
+        const MOVE_INTERVAL = 90; // 毫秒，略大于服务器的80ms，保证顺滑
 
         function resize() {
-            if(!wrapper.clientWidth) return;
-            const size = Math.min(wrapper.clientWidth, wrapper.clientHeight) - 20;
-            CELL_SIZE = Math.floor(size / gridSize);
-            canvas.width = CELL_SIZE * gridSize;
-            canvas.height = CELL_SIZE * gridSize;
+            canvas.width = wrapper.clientWidth;
+            canvas.height = wrapper.clientHeight;
             draw();
         }
 
         function draw() {
-            if(!gameState.maze.length) return;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 1. 画迷宫墙
-            ctx.strokeStyle = '#555'; ctx.lineWidth = 2; ctx.lineCap = 'square'; ctx.beginPath();
-            for(let y=0; y<gridSize; y++) {
-                for(let x=0; x<gridSize; x++) {
-                    let c = gameState.maze[y][x], px=x*CELL_SIZE, py=y*CELL_SIZE;
+            if(!selfId || !gameState.players[selfId] || !gameState.maze.length) return;
+
+            let me = gameState.players[selfId];
+            let myRender = playersRender[selfId] || {x: me.gridX*CELL_SIZE, y: me.gridY*CELL_SIZE};
+            
+            // 摄像机逻辑
+            let targetCamX = myRender.x + CELL_SIZE/2 - canvas.width/2;
+            let targetCamY = myRender.y + CELL_SIZE/2 - canvas.height/2;
+            let mapW = gridSize * CELL_SIZE;
+            let mapH = gridSize * CELL_SIZE;
+            
+            if (mapW > canvas.width) targetCamX = Math.max(0, Math.min(targetCamX, mapW - canvas.width));
+            else targetCamX = -(canvas.width - mapW) / 2;
+            
+            if (mapH > canvas.height) targetCamY = Math.max(0, Math.min(targetCamY, mapH - canvas.height));
+            else targetCamY = -(canvas.height - mapH) / 2;
+
+            camera.x += (targetCamX - camera.x) * 0.15; // 稍微调快一点跟随速度
+            camera.y += (targetCamY - camera.y) * 0.15;
+
+            ctx.save();
+            ctx.translate(-camera.x, -camera.y);
+
+            // 绘制迷宫
+            let startCol = Math.floor(camera.x / CELL_SIZE);
+            let endCol = startCol + (canvas.width / CELL_SIZE) + 1;
+            let startRow = Math.floor(camera.y / CELL_SIZE);
+            let endRow = startRow + (canvas.height / CELL_SIZE) + 1;
+
+            ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+            ctx.shadowBlur = 10; ctx.shadowColor = '#00f3ff';
+
+            ctx.beginPath();
+            for(let y = Math.max(0, startRow-1); y < Math.min(gridSize, endRow+1); y++) {
+                for(let x = Math.max(0, startCol-1); x < Math.min(gridSize, endCol+1); x++) {
+                    let c = gameState.maze[y][x];
+                    if (!c) continue; 
+                    let px=x*CELL_SIZE, py=y*CELL_SIZE;
                     if(c.walls.bottom) { ctx.moveTo(px, py+CELL_SIZE); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
                     if(c.walls.right) { ctx.moveTo(px+CELL_SIZE, py); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
                     if(y===0 && c.walls.top) { ctx.moveTo(px, py); ctx.lineTo(px+CELL_SIZE, py); }
@@ -105,99 +187,225 @@
                 }
             }
             ctx.stroke();
+            ctx.shadowBlur = 0;
 
-            // 2. 画终点 (绿色发光格子)
-            if(gameState.endPoint) {
-                let ex = gameState.endPoint.x * CELL_SIZE;
-                let ey = gameState.endPoint.y * CELL_SIZE;
-                ctx.fillStyle = 'rgba(46, 204, 113, 0.4)'; // 半透明绿
-                ctx.fillRect(ex, ey, CELL_SIZE, CELL_SIZE);
-                ctx.strokeStyle = '#2ecc71';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(ex+2, ey+2, CELL_SIZE-4, CELL_SIZE-4);
-            }
+            // 终点
+            let ex = gameState.endPoint.x * CELL_SIZE;
+            let ey = gameState.endPoint.y * CELL_SIZE;
+            ctx.fillStyle = 'rgba(46, 204, 113, 0.6)';
+            ctx.fillRect(ex+4, ey+4, CELL_SIZE-8, CELL_SIZE-8);
+            ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 2;
+            ctx.strokeRect(ex+2, ey+2, CELL_SIZE-4, CELL_SIZE-4);
 
-            // 3. 画玩家
+            // 玩家
             for(let id in gameState.players) {
                 let p = gameState.players[id];
-                // 增加平滑过渡效果 (简单的插值可以后续加，这里先直接渲染)
-                let cx = p.gridX * CELL_SIZE + CELL_SIZE/2;
-                let cy = p.gridY * CELL_SIZE + CELL_SIZE/2;
+                if(!playersRender[id]) playersRender[id] = { x: p.gridX*CELL_SIZE, y: p.gridY*CELL_SIZE };
                 
-                ctx.fillStyle = p.color; ctx.beginPath();
-                ctx.arc(cx, cy, CELL_SIZE*0.35, 0, Math.PI*2); ctx.fill();
-                if(id === selfId) { ctx.strokeStyle='#fff'; ctx.lineWidth=3; ctx.stroke(); }
+                let pr = playersRender[id];
+                pr.x += (p.gridX*CELL_SIZE - pr.x) * 0.3; // 渲染追赶速度加快
+                pr.y += (p.gridY*CELL_SIZE - pr.y) * 0.3;
+
+                let cx = pr.x + CELL_SIZE/2;
+                let cy = pr.y + CELL_SIZE/2;
+                
+                ctx.fillStyle = p.color;
+                ctx.beginPath(); ctx.arc(cx, cy, CELL_SIZE*0.35, 0, Math.PI*2); ctx.fill();
+                
+                if(id === selfId) {
+                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+                    ctx.beginPath(); ctx.arc(cx, cy, CELL_SIZE*0.6, 0, Math.PI*2); ctx.fill();
+                }
+            }
+            ctx.restore(); 
+
+            // 迷雾与UI
+            let playerScreenX = myRender.x + CELL_SIZE/2 - camera.x;
+            let playerScreenY = myRender.y + CELL_SIZE/2 - camera.y;
+            
+            let grd = ctx.createRadialGradient(playerScreenX, playerScreenY, CELL_SIZE*2.5, playerScreenX, playerScreenY, CELL_SIZE*8);
+            grd.addColorStop(0, "rgba(0,0,0,0)"); 
+            grd.addColorStop(1, "rgba(0,0,0,0.98)");
+            ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            drawArrow(playerScreenX, playerScreenY);
+        }
+
+        function drawArrow(px, py) {
+            let ex = gameState.endPoint.x * CELL_SIZE + CELL_SIZE/2 - camera.x;
+            let ey = gameState.endPoint.y * CELL_SIZE + CELL_SIZE/2 - camera.y;
+            let dx = ex - px, dy = ey - py;
+            let dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if(dist > Math.min(canvas.width, canvas.height)/2) {
+                let angle = Math.atan2(dy, dx);
+                let radius = Math.min(canvas.width, canvas.height)/2 - 50;
+                let arrowX = canvas.width/2 + Math.cos(angle) * radius;
+                let arrowY = canvas.height/2 + Math.sin(angle) * radius;
+                ctx.save();
+                ctx.translate(arrowX, arrowY);
+                ctx.rotate(angle);
+                ctx.fillStyle = '#2ecc71';
+                ctx.beginPath();
+                ctx.moveTo(12, 0); ctx.lineTo(-12, 12); ctx.lineTo(-12, -12); ctx.fill();
+                ctx.restore();
             }
         }
 
-        // 🎮 专业版移动：只发指令，不发坐标
-        function sendMove(dir) {
-            // 前端先做个简单的预判（Client Prediction），让手感不卡顿
-            // 但如果撞墙了，还是以服务器返回为准
-            // 为了代码简洁，这里我们直接发指令，等待服务器广播回来再渲染
-            // 局域网下延迟极低，几乎感觉不到卡顿
-            socket.emit('playerMoveAction', dir);
-        }
-
-        // === Socket 事件监听 ===
-        socket.on('init', d => {
-            selfId = d.selfId;
-            gameState = d.gameState;
-            gridSize = d.gridSize;
-            resize();
-            if(gameState.players[selfId]) document.getElementById('my-color').style.background = gameState.players[selfId].color;
-            winOverlay.style.display = 'none'; // 隐藏胜利弹窗
-        });
-
-        socket.on('newPlayer', p => { gameState.players[p.id] = p; draw(); });
-        
-        // 监听移动 (这是服务器确认后的位置)
-        socket.on('playerMoved', d => {
-            if(gameState.players[d.id]) {
-                gameState.players[d.id].gridX = d.gridX;
-                gameState.players[d.id].gridY = d.gridY;
-                draw();
-            }
-        });
-
-        socket.on('playerDisconnected', id => { delete gameState.players[id]; draw(); });
-
-        // 🎉 监听胜利
-        socket.on('gameWon', d => {
-            let winner = gameState.players[d.winnerId];
-            let name = (d.winnerId === selfId) ? "你" : "对手";
-            document.getElementById('winner-name').innerText = `${name} 赢了！`;
-            document.getElementById('winner-name').style.color = winner.color;
-            winOverlay.style.display = 'flex';
-        });
-
-        // 🔄 监听重开
-        socket.on('gameRestart', newState => {
-            gameState = newState;
-            winOverlay.style.display = 'none';
+        function gameLoop() {
             draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // 🔥 修复1：核心移动逻辑 (带碰撞检测)
+        function attemptMove(dir) {
+            if(!selfId || !gameState.players[selfId] || gameState.winner) return;
+            
+            // 节流检查：防止发包太快
+            const now = Date.now();
+            if (now - lastMoveTime < MOVE_INTERVAL) return;
+
+            let p = gameState.players[selfId];
+            let cx = p.gridX;
+            let cy = p.gridY;
+
+            // 边界检查
+            if (dir === 'up' && cy <= 0) return failMove();
+            if (dir === 'down' && cy >= gridSize - 1) return failMove();
+            if (dir === 'left' && cx <= 0) return failMove();
+            if (dir === 'right' && cx >= gridSize - 1) return failMove();
+
+            // 🔥 关键修复：本地碰撞检测
+            // 必须检查当前格子的墙壁，确认没有墙才能走
+            let cell = gameState.maze[cy][cx];
+            if (!cell) return; // 还没加载好
+
+            let blocked = false;
+            if (dir === 'up') blocked = cell.walls.top;
+            else if (dir === 'down') blocked = cell.walls.bottom;
+            else if (dir === 'left') blocked = cell.walls.left;
+            else if (dir === 'right') blocked = cell.walls.right;
+
+            if (blocked) {
+                return failMove(); // 撞墙了，不走，不发包
+            }
+
+            // 预判移动 (为了顺滑)
+            if (dir === 'up') p.gridY--;
+            else if (dir === 'down') p.gridY++;
+            else if (dir === 'left') p.gridX--;
+            else if (dir === 'right') p.gridX++;
+
+            lastMoveTime = now; // 更新时间戳
+            socket.emit('playerMoveAction', dir);
+            
+            // 成功的微震动
+            if(navigator.vibrate) navigator.vibrate(10);
+        }
+
+        function failMove() {
+            // 撞墙反馈 (稍微强一点的震动)
+            if(navigator.vibrate) navigator.vibrate(30);
+        }
+
+        // --- 手势与按键 ---
+        let touchStartX = 0, touchStartY = 0;
+        document.body.addEventListener('touchstart', e => {
+            touchStartX = e.changedTouches[0].screenX;
+            touchStartY = e.changedTouches[0].screenY;
+        }, {passive: false});
+
+        document.body.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
+
+        document.body.addEventListener('touchend', e => {
+            let dx = e.changedTouches[0].screenX - touchStartX;
+            let dy = e.changedTouches[0].screenY - touchStartY;
+            if(Math.abs(dx) > 30 || Math.abs(dy) > 30) {
+                if(Math.abs(dx) > Math.abs(dy)) attemptMove(dx > 0 ? 'right' : 'left');
+                else attemptMove(dy > 0 ? 'down' : 'up');
+            }
         });
 
-        // 绑定操作
-        window.onresize = resize;
-        window.addEventListener('orientationchange', () => setTimeout(resize, 500));
-        
-        const bind = (id, dir) => {
-            let b = document.getElementById(id);
-            let action = (e) => { e.preventDefault(); sendMove(dir); };
-            b.addEventListener('touchstart', action);
-            b.addEventListener('mousedown', action);
+        const bindKey = (id, dir) => {
+            let btn = document.getElementById(id);
+            // 支持长按：使用 setInterval 模拟连发 (简单方案)
+            // 更好的方案是监听 touchstart/end 配合 requestAnimationFrame，
+            // 但这里直接复用 attemptMove 的时间节流即可，所以只需高频触发。
+            let intervalId = null;
+            
+            const startMove = (e) => {
+                e.preventDefault(); e.stopPropagation();
+                btn.style.background = '#f1c40f'; btn.style.color = '#000';
+                attemptMove(dir); // 立即触发一次
+                // 开启连发
+                intervalId = setInterval(() => attemptMove(dir), 50); 
+            };
+            
+            const stopMove = (e) => {
+                if(e) { e.preventDefault(); e.stopPropagation(); }
+                btn.style.background = 'rgba(255,255,255,0.15)'; btn.style.color = '#fff';
+                clearInterval(intervalId);
+            };
+
+            btn.addEventListener('touchstart', startMove);
+            btn.addEventListener('touchend', stopMove);
+            btn.addEventListener('mousedown', startMove); // 兼容鼠标点击
+            btn.addEventListener('mouseup', stopMove);
+            btn.addEventListener('mouseleave', stopMove);
         };
-        bind('btn-up', 'up'); bind('btn-down', 'down');
-        bind('btn-left', 'left'); bind('btn-right', 'right');
         
-        // 键盘支持
+        bindKey('vb-up', 'up'); bindKey('vb-down', 'down');
+        bindKey('vb-left', 'left'); bindKey('vb-right', 'right');
+
+        // 🔥 修复3：电脑端键盘支持长按
+        let keysPressed = {};
         document.addEventListener('keydown', e => {
-            if(e.key==='w'||e.key==='ArrowUp') sendMove('up');
-            if(e.key==='s'||e.key==='ArrowDown') sendMove('down');
-            if(e.key==='a'||e.key==='ArrowLeft') sendMove('left');
-            if(e.key==='d'||e.key==='ArrowRight') sendMove('right');
+            if(['w','a','s','d','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.key)) {
+                keysPressed[e.key] = true;
+            }
         });
+        document.addEventListener('keyup', e => {
+            keysPressed[e.key] = false;
+        });
+
+        // 在游戏循环中检查按键，实现平滑长按移动
+        function checkKeyboard() {
+            if(keysPressed['w'] || keysPressed['ArrowUp']) attemptMove('up');
+            if(keysPressed['s'] || keysPressed['ArrowDown']) attemptMove('down');
+            if(keysPressed['a'] || keysPressed['ArrowLeft']) attemptMove('left');
+            if(keysPressed['d'] || keysPressed['ArrowRight']) attemptMove('right');
+        }
+
+        // Socket
+        socket.on('connect', () => { connStatus.innerText = "已连接"; connStatus.style.color = '#2ecc71'; });
+        socket.on('disconnect', () => { connStatus.innerText = "断开"; connStatus.style.color = '#e74c3c'; });
+        socket.on('init', d => { selfId = d.selfId; gameState = d.gameState; gridSize = d.gridSize; resize(); });
+        socket.on('newPlayer', p => { gameState.players[p.id] = p; });
+        socket.on('playerMoved', d => { 
+            if(gameState.players[d.id]) { 
+                gameState.players[d.id].gridX = d.gridX; 
+                gameState.players[d.id].gridY = d.gridY; 
+            } 
+        });
+        socket.on('playerDisconnected', id => { delete gameState.players[id]; delete playersRender[id]; });
+        socket.on('gameWon', d => {
+            let name = (d.winnerId === selfId) ? "你" : "对手";
+            document.getElementById('win-text').innerText = `${name} 赢了!`;
+            msgOverlay.style.opacity = 1;
+        });
+        socket.on('gameRestart', newState => { gameState = newState; msgOverlay.style.opacity = 0; });
+
+        window.onresize = resize;
+        
+        // 启动循环
+        function mainLoop() {
+            checkKeyboard(); // 每一帧检查键盘
+            draw();
+            requestAnimationFrame(mainLoop);
+        }
+        mainLoop();
+
     </script>
 </body>
 </html>
