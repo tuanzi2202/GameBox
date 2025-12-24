@@ -10,147 +10,235 @@ const PORT = 3000;
 app.use(express.static(path.join(__dirname, 'public')));
 
 const mazeIo = io.of('/maze');
-// 🔥 升级：地图扩大到 30x30，配合手机端摄像机模式
-const GRID_SIZE = 30; 
-const MOVE_COOLDOWN = 80; // 手感优化：稍微加快一点节奏
 
-let gameState = {
-    maze: [],
-    players: {},
-    startPoint: { x: 0, y: 0 },
-    endPoint: { x: GRID_SIZE-1, y: GRID_SIZE-1 },
-    winner: null 
+// --- 游戏配置 ---
+const CONFIG = {
+    CHUNK_SIZE: 15,
+    CELL_SIZE: 40,
+    MOVE_COOLDOWN: 80,
+    ENERGY_DECAY: 0.8,
+    ITEM_ENERGY: 30,
+    ITEM_SCORE: 100,
+    GC_INTERVAL: 15000,
+    CHUNK_LIFETIME: 60000,
+    VIEW_DIST: 2
 };
 
-function generateMaze() {
-    console.log("正在构建新赛季巨型地图...");
+let chunks = new Map();
+let players = {};
+
+// --- 区块生成 ---
+function getChunk(cx, cy) {
+    const key = `${cx},${cy}`;
+    if (chunks.has(key)) {
+        const wrapper = chunks.get(key);
+        wrapper.lastAccessed = Date.now();
+        // 关键点：这里返回的是 wrapper.data
+        return wrapper.data;
+    }
+    const chunkData = generateChunk(cx, cy);
+    chunks.set(key, { data: chunkData, lastAccessed: Date.now() });
+    return chunkData;
+}
+
+function generateChunk(cx, cy) {
     let grid = [];
-    for (let y = 0; y < GRID_SIZE; y++) {
+    const size = CONFIG.CHUNK_SIZE;
+    // 初始化
+    for (let y = 0; y < size; y++) {
         let row = [];
-        for (let x = 0; x < GRID_SIZE; x++) {
-            row.push({ x, y, visited: false, walls: { top: true, right: true, bottom: true, left: true } });
+        for (let x = 0; x < size; x++) {
+            row.push({ x, y, visited: false, walls: { top: 1, right: 1, bottom: 1, left: 1 } });
         }
         grid.push(row);
     }
 
-    // DFS 生成主路径
-    function visit(cell) {
-        cell.visited = true;
-        const neighbors = [
-            { x: cell.x, y: cell.y - 1, dir: 'top', opp: 'bottom' },
-            { x: cell.x + 1, y: cell.y, dir: 'right', opp: 'left' },
-            { x: cell.x, y: cell.y + 1, dir: 'bottom', opp: 'top' },
-            { x: cell.x - 1, y: cell.y, dir: 'left', opp: 'right' }
-        ].sort(() => Math.random() - 0.5);
+    // 必通中心
+    const mid = Math.floor(size / 2);
+    grid[0][mid].walls.top = 0;
+    grid[size - 1][mid].walls.bottom = 0;
+    grid[mid][0].walls.left = 0;
+    grid[mid][size - 1].walls.right = 0;
 
-        for (let n of neighbors) {
-            if (n.x >= 0 && n.x < GRID_SIZE && n.y >= 0 && n.y < GRID_SIZE && !grid[n.y][n.x].visited) {
-                cell.walls[n.dir] = false;
-                grid[n.y][n.x].walls[n.opp] = false;
-                visit(grid[n.y][n.x]);
-            }
+    // DFS 生成
+    let stack = [grid[mid][mid]];
+    grid[mid][mid].visited = true;
+
+    while (stack.length > 0) {
+        let curr = stack[stack.length - 1];
+        let neighbors = [
+            { x: curr.x, y: curr.y - 1, dir: 'top', opp: 'bottom' },
+            { x: curr.x + 1, y: curr.y, dir: 'right', opp: 'left' },
+            { x: curr.x, y: curr.y + 1, dir: 'bottom', opp: 'top' },
+            { x: curr.x - 1, y: curr.y, dir: 'left', opp: 'right' }
+        ].filter(n => n.x >= 0 && n.x < size && n.y >= 0 && n.y < size && !grid[n.y][n.x].visited);
+
+        if (neighbors.length > 0) {
+            let next = neighbors[Math.floor(Math.random() * neighbors.length)];
+            curr.walls[next.dir] = 0;
+            grid[next.y][next.x].walls[next.opp] = 0;
+            grid[next.y][next.x].visited = true;
+            stack.push(grid[next.y][next.x]);
+        } else {
+            stack.pop();
         }
     }
-    
-    let start = { x: 1, y: 1 }; //稍微往里一点
-    visit(grid[start.y][start.x]);
 
-    // 🔥 玩法优化：打更多的洞，让地图更像“开阔迷宫”而不是死胡同迷宫
-    // 增加追逐和绕路的可能性
-    for(let i=0; i<GRID_SIZE*10; i++) {
-        let rx = Math.floor(Math.random()*(GRID_SIZE-1));
-        let ry = Math.floor(Math.random()*(GRID_SIZE-1));
-        if(Math.random()>0.5) grid[ry][rx].walls.right = grid[ry][rx+1].walls.left = false;
-        else grid[ry][rx].walls.bottom = grid[ry+1][rx].walls.top = false;
+    // 物品生成
+    let items = [];
+    const itemCount = Math.floor(Math.random() * 3) + 2;
+    for (let i = 0; i < itemCount; i++) {
+        let rx = Math.floor(Math.random() * size);
+        let ry = Math.floor(Math.random() * size);
+        if (rx !== mid || ry !== mid) {
+            items.push({ id: Math.random().toString(36).substr(2, 9), x: rx, y: ry });
+        }
     }
 
-    gameState.maze = grid;
-    gameState.startPoint = start;
-    gameState.endPoint = { x: GRID_SIZE - 2, y: GRID_SIZE - 2 };
-    gameState.winner = null;
-
-    // 重置所有玩家
-    for (let id in gameState.players) {
-        let p = gameState.players[id];
-        p.gridX = start.x;
-        p.gridY = start.y;
-        p.lastMoveTime = 0;
-    }
-
-    return gameState;
+    return { cx, cy, grid, items };
 }
 
-generateMaze();
-
+// --- Socket ---
 mazeIo.on('connection', (socket) => {
-    // 随机分配一个鲜艳的颜色
-    const hue = Math.floor(Math.random() * 360);
-    gameState.players[socket.id] = {
+    console.log('Player join:', socket.id);
+
+    // 初始位置
+    players[socket.id] = {
         id: socket.id,
-        gridX: gameState.startPoint.x,
-        gridY: gameState.startPoint.y,
-        color: `hsl(${hue}, 80%, 60%)`, // 这种颜色在黑底上更好看
-        lastMoveTime: 0
+        x: Math.floor(CONFIG.CHUNK_SIZE / 2),
+        y: Math.floor(CONFIG.CHUNK_SIZE / 2),
+        color: `hsl(${Math.random() * 360}, 80%, 60%)`,
+        energy: 100,
+        score: 0,
+        isDead: false,
+        lastMove: 0
     };
 
-    socket.emit('init', {
-        selfId: socket.id,
-        gameState: gameState,
-        gridSize: GRID_SIZE
-    });
-    socket.broadcast.emit('newPlayer', gameState.players[socket.id]);
+    socket.emit('init', { selfId: socket.id, config: CONFIG });
+    sendStateToPlayer(socket.id); // 立即发送第一帧
 
-    socket.on('playerMoveAction', (direction) => {
-        let player = gameState.players[socket.id];
-        if (!player || gameState.winner) return;
+    socket.on('move', (dir) => {
+        let p = players[socket.id];
+        if (!p || p.isDead) return;
+        if (Date.now() - p.lastMove < CONFIG.MOVE_COOLDOWN) return;
 
-        const now = Date.now();
-        if (now - player.lastMoveTime < MOVE_COOLDOWN) return; 
+        let targetX = p.x;
+        let targetY = p.y;
+        if (dir === 'up') targetY--;
+        if (dir === 'down') targetY++;
+        if (dir === 'left') targetX--;
+        if (dir === 'right') targetX++;
 
-        let currentX = player.gridX;
-        let currentY = player.gridY;
-        let targetX = currentX;
-        let targetY = currentY;
-
-        if (direction === 'up') targetY -= 1;
-        if (direction === 'down') targetY += 1;
-        if (direction === 'left') targetX -= 1;
-        if (direction === 'right') targetX += 1;
-
-        if (targetX < 0 || targetX >= GRID_SIZE || targetY < 0 || targetY >= GRID_SIZE) return;
-
-        let cell = gameState.maze[currentY][currentX];
+        // 碰撞检测
+        let cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
+        let cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
+        
+        // 这里的 getChunk 会返回 data，不仅为了检测，也保证了区块生成
+        let chunk = getChunk(cx, cy); 
+        
+        let lx = ((p.x % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+        let ly = ((p.y % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+        
+        let cell = chunk.grid[ly][lx];
         let blocked = false;
-
-        if (direction === 'up') { if (cell.walls.top) blocked = true; }
-        else if (direction === 'down') { if (cell.walls.bottom) blocked = true; }
-        else if (direction === 'left') { if (cell.walls.left) blocked = true; }
-        else if (direction === 'right') { if (cell.walls.right) blocked = true; }
+        if (dir === 'up' && cell.walls.top) blocked = true;
+        if (dir === 'down' && cell.walls.bottom) blocked = true;
+        if (dir === 'left' && cell.walls.left) blocked = true;
+        if (dir === 'right' && cell.walls.right) blocked = true;
 
         if (!blocked) {
-            player.gridX = targetX;
-            player.gridY = targetY;
-            player.lastMoveTime = now;
+            p.x = targetX;
+            p.y = targetY;
+            p.lastMove = Date.now();
+            checkItemPickup(p);
+        }
+    });
 
-            mazeIo.emit('playerMoved', { id: socket.id, gridX: targetX, gridY: targetY });
-
-            if (targetX === gameState.endPoint.x && targetY === gameState.endPoint.y) {
-                gameState.winner = socket.id;
-                mazeIo.emit('gameWon', { winnerId: socket.id });
-                setTimeout(() => {
-                    generateMaze();
-                    mazeIo.emit('gameRestart', gameState);
-                }, 3000);
-            }
+    socket.on('respawn', () => {
+        let p = players[socket.id];
+        if (p) {
+            p.energy = 100;
+            p.isDead = false;
+            p.score = Math.floor(p.score / 2);
         }
     });
 
     socket.on('disconnect', () => {
-        delete gameState.players[socket.id];
-        mazeIo.emit('playerDisconnected', socket.id);
+        delete players[socket.id];
     });
 });
 
+// --- 修复后的函数 ---
+function checkItemPickup(p) {
+    let cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
+    let cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
+    let lx = ((p.x % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+    let ly = ((p.y % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+
+    // 修改点：使用 getChunk 而不是 chunks.get
+    // getChunk 内部会自动解包并返回 .data (包含 .items)，同时刷新活跃时间
+    let chunk = getChunk(cx, cy); 
+    
+    if (chunk && chunk.items) {
+        let idx = chunk.items.findIndex(i => i.x === lx && i.y === ly);
+        if (idx !== -1) {
+            p.energy = Math.min(100, p.energy + CONFIG.ITEM_ENERGY);
+            p.score += CONFIG.ITEM_SCORE;
+            let item = chunk.items.splice(idx, 1)[0];
+            mazeIo.emit('item_removed', { key: `${cx},${cy}`, id: item.id });
+        }
+    }
+}
+
+function sendStateToPlayer(sid) {
+    let p = players[sid];
+    if (!p) return;
+
+    let cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
+    let cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
+    let chunksToSend = [];
+
+    // 发送 5x5 范围
+    for (let dy = -CONFIG.VIEW_DIST; dy <= CONFIG.VIEW_DIST; dy++) {
+        for (let dx = -CONFIG.VIEW_DIST; dx <= CONFIG.VIEW_DIST; dx++) {
+            chunksToSend.push(getChunk(cx + dx, cy + dy));
+        }
+    }
+
+    let lb = Object.values(players).sort((a, b) => b.score - a.score).slice(0, 5)
+        .map(x => ({ color: x.color, score: x.score, isMe: x.id === sid }));
+
+    const socket = mazeIo.sockets.get(sid);
+    if(socket) {
+        socket.emit('gamestate', {
+            me: p,
+            players: players,
+            chunks: chunksToSend,
+            leaderboard: lb
+        });
+    }
+}
+
+// 循环
+setInterval(() => {
+    for (let id in players) {
+        let p = players[id];
+        if (!p.isDead) {
+            p.energy -= CONFIG.ENERGY_DECAY * 0.1;
+            if (p.energy <= 0) { p.energy = 0; p.isDead = true; }
+            else p.score += 0.2;
+        }
+        sendStateToPlayer(id);
+    }
+}, 100);
+
+setInterval(() => {
+    const now = Date.now();
+    for (let [k, v] of chunks) {
+        if (now - v.lastAccessed > CONFIG.CHUNK_LIFETIME) chunks.delete(k);
+    }
+}, CONFIG.GC_INTERVAL);
+
 server.listen(PORT, () => {
-    console.log(`\n🚀 游戏升级版已启动: http://localhost:${PORT}\n`);
+    console.log(`Maze Server on ${PORT}`);
 });

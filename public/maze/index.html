@@ -3,408 +3,419 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>迷宫大作战 (Fix v2)</title>
+    <title>深渊迷宫 - Survival</title>
     <style>
-        * { box-sizing: border-box; touch-action: none; user-select: none; -webkit-user-select: none; }
+        :root { --ui-bg: rgba(20, 20, 30, 0.9); --accent: #00f3ff; --danger: #ff3366; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: monospace; user-select: none; touch-action: none; }
         
-        body { 
-            margin: 0; background: #000; color: #fff; overflow: hidden; 
-            width: 100vw; height: 100dvh; /* 使用 dvh 适配手机 */
-            display: flex; font-family: 'Segoe UI', sans-serif;
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+
+        /* UI */
+        #ui { position: absolute; inset: 0; pointer-events: none; padding: 15px; display: flex; flex-direction: column; justify-content: space-between; z-index: 10; }
+        
+        /* 顶部信息 */
+        .top-row { display: flex; justify-content: space-between; align-items: flex-start; }
+        .radar { 
+            width: 120px; height: 120px; background: rgba(0,0,0,0.8); 
+            border: 2px solid #444; border-radius: 50%; overflow: hidden; position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
         }
+        #mini { width: 100%; height: 100%; opacity: 0.8; }
+        
+        .info { text-align: right; background: var(--ui-bg); padding: 10px; border-radius: 4px; border-right: 3px solid var(--accent); }
+        .info div { margin-bottom: 4px; color: #ccc; font-size: 12px; }
+        .val { color: #fff; font-weight: bold; margin-left: 5px; }
 
-        #canvas-wrapper { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: #000; z-index: 1;
-        }
-
-        canvas { display: block; }
-
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; padding: 20px;
-            padding-bottom: env(safe-area-inset-bottom);
-            padding-left: env(safe-area-inset-left);
-            z-index: 10;
-        }
-
-        .hud-top { display: flex; justify-content: space-between; align-items: flex-start; }
-
-        .back-btn { 
+        /* 调试信息 */
+        #debug-info {
+            position: absolute; top: 50px; left: 10px; 
+            color: #555; font-size: 10px; background: rgba(0,0,0,0.5); padding: 5px;
             pointer-events: auto;
-            background: rgba(231, 76, 60, 0.9); padding: 8px 16px; border-radius: 20px; 
-            font-size: 14px; font-weight: bold; box-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
-            backdrop-filter: blur(4px); cursor: pointer; border: 1px solid rgba(255,255,255,0.2);
         }
 
-        .status-panel {
-            background: rgba(0,0,0,0.6); padding: 10px; border-radius: 10px;
-            font-size: 12px; color: #ccc; backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.1); text-align: right;
-        }
+        /* 底部能量 */
+        .btm-row { width: 100%; max-width: 400px; align-self: center; margin-bottom: 40px; }
+        .bar-box { height: 14px; background: #222; border: 1px solid #555; border-radius: 7px; overflow: hidden; padding: 2px; }
+        .bar { height: 100%; width: 100%; background: var(--accent); border-radius: 5px; transition: width 0.2s, background 0.3s; box-shadow: 0 0 10px var(--accent); }
+        .bar-label { text-align: center; color: #777; font-size: 10px; margin-top: 4px; letter-spacing: 2px; }
 
-        #virtual-controls {
-            position: absolute; bottom: 20px; left: 20px;
-            display: grid; grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px);
-            gap: 5px; pointer-events: auto; 
-            opacity: 0.5; transition: opacity 0.3s;
-            transform: scale(0.7); transform-origin: bottom left; 
+        /* 死亡 */
+        #dead-screen {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 20;
+            display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: auto;
         }
-        #virtual-controls:active { opacity: 0.9; }
-        .v-btn {
-            background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px;
-            display: flex; justify-content: center; align-items: center;
-            font-size: 24px; color: #fff;
-        }
-        #vb-up { grid-column: 2; grid-row: 1; }
-        #vb-left { grid-column: 1; grid-row: 2; }
-        #vb-right { grid-column: 3; grid-row: 2; }
-        #vb-down { grid-column: 2; grid-row: 3; }
+        .dead-title { font-size: 40px; color: var(--danger); font-weight: bold; margin-bottom: 20px; text-shadow: 0 0 20px var(--danger); }
+        button { background: transparent; border: 2px solid #fff; color: #fff; padding: 10px 30px; font-size: 16px; cursor: pointer; }
+        button:active { background: #fff; color: #000; }
 
-        #message-overlay {
-            position: absolute; top: 35%; width: 100%; text-align: center;
-            pointer-events: none; opacity: 0; transition: opacity 0.5s; z-index: 20;
-        }
-        #message-overlay h1 { 
-            font-size: 40px; color: #f1c40f; text-shadow: 0 0 20px #f1c40f; margin: 0;
-            -webkit-text-stroke: 1px rgba(0,0,0,0.8);
-        }
-
-        #portrait-warning {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 999; justify-content: center; align-items: center;
-            flex-direction: column; text-align: center;
-        }
-        @media screen and (orientation: portrait) { #portrait-warning { display: flex; } }
+        /* 触控 */
+        #pads { position: absolute; bottom: 20px; left: 20px; display: grid; grid-template-columns: repeat(3,60px); grid-template-rows: repeat(3,60px); gap:5px; pointer-events: auto; opacity: 0.5; }
+        .btn { background: rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius: 10px; color: #fff; display:flex; justify-content:center; align-items:center; font-size: 24px;}
+        .btn:active { background: rgba(255,255,255,0.3); }
+        .u { grid-column:2; grid-row:1 } .l { grid-column:1; grid-row:2 } .r { grid-column:3; grid-row:2 } .d { grid-column:2; grid-row:3 }
     </style>
 </head>
 <body>
 
-    <div id="portrait-warning">
-        <h2 style="color:#f1c40f;">📱 请旋转手机</h2>
-        <p style="color:#666;">横屏游玩体验更佳</p>
-    </div>
+    <canvas id="game"></canvas>
 
-    <div id="canvas-wrapper"><canvas id="gameCanvas"></canvas></div>
-
-    <div id="ui-layer">
-        <div class="hud-top">
-            <div class="back-btn" onclick="location.href='../index.html'">⬅ 退出</div>
-            <div class="status-panel">
-                <div style="color: #2ecc71; font-size: 14px; font-weight: bold; margin-bottom: 4px;">目标：绿色光柱</div>
-                <div id="conn-status">连接中...</div>
+    <div id="ui">
+        <div class="top-row">
+            <div class="radar">
+                <canvas id="mini"></canvas>
+            </div>
+            <div class="info">
+                <div>SCORE <span class="val" id="score">0</span></div>
+                <div>POS <span class="val" id="coords">0, 0</span></div>
+                <div id="status" style="color:var(--accent)">SYSTEM ONLINE</div>
             </div>
         </div>
 
-        <div id="message-overlay">
-            <h1 id="win-text">胜利！</h1>
-            <p style="color:#fff; text-shadow:0 0 5px #000;">即将开始新一局...</p>
+        <div id="debug-info">Waiting for server...</div>
+
+        <div class="btm-row">
+            <div class="bar-box"><div class="bar" id="energy"></div></div>
+            <div class="bar-label">ENERGY LEVEL</div>
         </div>
 
-        <div id="virtual-controls">
-            <div class="v-btn" id="vb-up">▲</div>
-            <div class="v-btn" id="vb-left">◀</div>
-            <div class="v-btn" id="vb-right">▶</div>
-            <div class="v-btn" id="vb-down">▼</div>
+        <div id="pads">
+            <div class="btn u" data-d="up">▲</div>
+            <div class="btn l" data-d="left">◀</div>
+            <div class="btn d" data-d="down">▼</div>
+            <div class="btn r" data-d="right">▶</div>
         </div>
+    </div>
+
+    <div id="dead-screen">
+        <div class="dead-title">SIGNAL LOST</div>
+        <button onclick="respawn()">REBOOT</button>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        const socket = io('/maze'); 
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const wrapper = document.getElementById('canvas-wrapper');
-        const msgOverlay = document.getElementById('message-overlay');
-        const connStatus = document.getElementById('conn-status');
+        const socket = io('/maze');
+        const cvs = document.getElementById('game');
+        const ctx = cvs.getContext('2d');
+        const mcvs = document.getElementById('mini');
+        const mctx = mcvs.getContext('2d');
+        const debugEl = document.getElementById('debug-info');
 
-        let gameState = { maze: [], players: {}, startPoint: {}, endPoint: {} };
+        // 配置
+        let config = { CELL_SIZE: 40, CHUNK_SIZE: 15 };
+        let me = { x: 0, y: 0, energy: 100, isDead: false, score: 0 };
+        // 插值坐标
+        let rPos = { x: 0, y: 0 }; 
+        let cam = { x: 0, y: 0 };
+        
+        let chunks = {};
+        let players = {};
         let selfId = null;
-        let gridSize = 30; 
-        let CELL_SIZE = 40; 
-        
-        let playersRender = {}; 
-        let camera = { x: 0, y: 0 };
-        
-        // 🔥 修复2：客户端防抖节流
-        // 允许按住键盘，但限制发送频率，防止发包过快导致的卡顿
-        let lastMoveTime = 0;
-        const MOVE_INTERVAL = 90; // 毫秒，略大于服务器的80ms，保证顺滑
+        let connected = false;
 
         function resize() {
-            canvas.width = wrapper.clientWidth;
-            canvas.height = wrapper.clientHeight;
-            draw();
+            cvs.width = window.innerWidth;
+            cvs.height = window.innerHeight;
+            mcvs.width = 120; mcvs.height = 120;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // --- Socket ---
+        socket.on('connect', () => {
+            debugEl.innerText = "Connected. Waiting for data...";
+        });
+
+        socket.on('init', (data) => {
+            selfId = data.selfId;
+            config = data.config;
+            connected = true;
+            debugEl.innerText = "Initialized. ID: " + selfId.substr(0,4);
+        });
+
+        socket.on('gamestate', (state) => {
+            if(!connected) return;
+            
+            // 更新地图
+            state.chunks.forEach(c => chunks[`${c.cx},${c.cy}`] = c);
+            
+            // 更新玩家
+            players = state.players;
+            me = state.me;
+
+            // 第一次同步坐标，避免飞跃
+            if (rPos.x === 0 && rPos.y === 0 && me) {
+                rPos.x = me.x * config.CELL_SIZE;
+                rPos.y = me.y * config.CELL_SIZE;
+            }
+
+            updateUI(state.leaderboard);
+        });
+
+        socket.on('item_removed', (d) => {
+            if(chunks[d.key]) chunks[d.key].items = chunks[d.key].items.filter(i=>i.id!==d.id);
+        });
+
+        function respawn() { socket.emit('respawn'); }
+
+        function updateUI(lb) {
+            // 能量
+            const pct = Math.max(0, me.energy);
+            const bar = document.getElementById('energy');
+            bar.style.width = pct + '%';
+            if(pct < 30) bar.style.background = '#ff3366';
+            else if(pct < 60) bar.style.background = '#f1c40f';
+            else bar.style.background = '#00f3ff';
+
+            // 文字
+            document.getElementById('score').innerText = Math.floor(me.score);
+            document.getElementById('coords').innerText = `${Math.floor(me.x)},${Math.floor(me.y)}`;
+            
+            // 死亡
+            document.getElementById('dead-screen').style.display = me.isDead ? 'flex' : 'none';
+            document.getElementById('status').innerText = me.isDead ? "CRITICAL FAILURE" : "OPERATIONAL";
+            document.getElementById('status').style.color = me.isDead ? "red" : "#00f3ff";
         }
 
-        function draw() {
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        // --- 渲染循环 ---
+        function loop() {
+            requestAnimationFrame(loop);
 
-            if(!selfId || !gameState.players[selfId] || !gameState.maze.length) return;
+            // 1. 清屏 (深蓝黑背景)
+            ctx.fillStyle = '#050508';
+            ctx.fillRect(0, 0, cvs.width, cvs.height);
 
-            let me = gameState.players[selfId];
-            let myRender = playersRender[selfId] || {x: me.gridX*CELL_SIZE, y: me.gridY*CELL_SIZE};
+            if (!connected || !selfId) {
+                // 如果没连上，画个网格表示程序活着
+                drawGrid(0, 0);
+                return;
+            }
+
+            // 2. 计算插值位置 (平滑移动)
+            let tx = me.x * config.CELL_SIZE;
+            let ty = me.y * config.CELL_SIZE;
             
-            // 摄像机逻辑
-            let targetCamX = myRender.x + CELL_SIZE/2 - canvas.width/2;
-            let targetCamY = myRender.y + CELL_SIZE/2 - canvas.height/2;
-            let mapW = gridSize * CELL_SIZE;
-            let mapH = gridSize * CELL_SIZE;
-            
-            if (mapW > canvas.width) targetCamX = Math.max(0, Math.min(targetCamX, mapW - canvas.width));
-            else targetCamX = -(canvas.width - mapW) / 2;
-            
-            if (mapH > canvas.height) targetCamY = Math.max(0, Math.min(targetCamY, mapH - canvas.height));
-            else targetCamY = -(canvas.height - mapH) / 2;
+            // 简单的线性插值
+            rPos.x += (tx - rPos.x) * 0.2;
+            rPos.y += (ty - rPos.y) * 0.2;
 
-            camera.x += (targetCamX - camera.x) * 0.15; // 稍微调快一点跟随速度
-            camera.y += (targetCamY - camera.y) * 0.15;
+            // 3. 计算摄像机 (以玩家为中心)
+            cam.x = Math.floor(rPos.x + config.CELL_SIZE/2 - cvs.width/2);
+            cam.y = Math.floor(rPos.y + config.CELL_SIZE/2 - cvs.height/2);
 
+            // --------------------
+            // 进入世界坐标
+            // --------------------
             ctx.save();
-            ctx.translate(-camera.x, -camera.y);
+            ctx.translate(-cam.x, -cam.y);
 
-            // 绘制迷宫
-            let startCol = Math.floor(camera.x / CELL_SIZE);
-            let endCol = startCol + (canvas.width / CELL_SIZE) + 1;
-            let startRow = Math.floor(camera.y / CELL_SIZE);
-            let endRow = startRow + (canvas.height / CELL_SIZE) + 1;
+            // A. 背景网格
+            drawGrid(cam.x, cam.y);
 
-            ctx.strokeStyle = '#00f3ff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
-            ctx.shadowBlur = 10; ctx.shadowColor = '#00f3ff';
+            // B. 迷宫墙壁
+            drawMaze();
 
+            // C. 玩家
+            drawPlayers();
+
+            ctx.restore(); 
+            // 退出世界坐标
+            // --------------------
+
+            // 4. 迷雾 (最稳健的剪纸法)
+            drawFogSolid();
+
+            // 5. 小地图
+            drawMini();
+        }
+
+        function drawGrid(cx, cy) {
+            ctx.strokeStyle = '#1a1a20';
+            ctx.lineWidth = 1;
             ctx.beginPath();
-            for(let y = Math.max(0, startRow-1); y < Math.min(gridSize, endRow+1); y++) {
-                for(let x = Math.max(0, startCol-1); x < Math.min(gridSize, endCol+1); x++) {
-                    let c = gameState.maze[y][x];
-                    if (!c) continue; 
-                    let px=x*CELL_SIZE, py=y*CELL_SIZE;
-                    if(c.walls.bottom) { ctx.moveTo(px, py+CELL_SIZE); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
-                    if(c.walls.right) { ctx.moveTo(px+CELL_SIZE, py); ctx.lineTo(px+CELL_SIZE, py+CELL_SIZE); }
-                    if(y===0 && c.walls.top) { ctx.moveTo(px, py); ctx.lineTo(px+CELL_SIZE, py); }
-                    if(x===0 && c.walls.left) { ctx.moveTo(px, py); ctx.lineTo(px, py+CELL_SIZE); }
-                }
+            
+            const cs = config.CELL_SIZE;
+            // 算出屏幕覆盖的网格范围
+            const sx = Math.floor(cx / cs) * cs;
+            const sy = Math.floor(cy / cs) * cs;
+            const ex = cx + cvs.width;
+            const ey = cy + cvs.height;
+
+            for(let x = sx; x < ex + cs; x += cs) {
+                ctx.moveTo(x, cy); ctx.lineTo(x, ey + cs);
+            }
+            for(let y = sy; y < ey + cs; y += cs) {
+                ctx.moveTo(cx, y); ctx.lineTo(ex + cs, y);
             }
             ctx.stroke();
-            ctx.shadowBlur = 0;
+        }
 
-            // 终点
-            let ex = gameState.endPoint.x * CELL_SIZE;
-            let ey = gameState.endPoint.y * CELL_SIZE;
-            ctx.fillStyle = 'rgba(46, 204, 113, 0.6)';
-            ctx.fillRect(ex+4, ey+4, CELL_SIZE-8, CELL_SIZE-8);
-            ctx.strokeStyle = '#2ecc71'; ctx.lineWidth = 2;
-            ctx.strokeRect(ex+2, ey+2, CELL_SIZE-4, CELL_SIZE-4);
+        function drawMaze() {
+            // 计算视野内的 Chunk
+            const cs = config.CELL_SIZE;
+            const cSize = config.CHUNK_SIZE;
+            const px = rPos.x + 20; // 玩家中心点
+            const py = rPos.y + 20;
+            
+            const cx = Math.floor(px / (cs * cSize));
+            const cy = Math.floor(py / (cs * cSize));
 
-            // 玩家
-            for(let id in gameState.players) {
-                let p = gameState.players[id];
-                if(!playersRender[id]) playersRender[id] = { x: p.gridX*CELL_SIZE, y: p.gridY*CELL_SIZE };
-                
-                let pr = playersRender[id];
-                pr.x += (p.gridX*CELL_SIZE - pr.x) * 0.3; // 渲染追赶速度加快
-                pr.y += (p.gridY*CELL_SIZE - pr.y) * 0.3;
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#00f3ff';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f3ff';
 
-                let cx = pr.x + CELL_SIZE/2;
-                let cy = pr.y + CELL_SIZE/2;
-                
-                ctx.fillStyle = p.color;
-                ctx.beginPath(); ctx.arc(cx, cy, CELL_SIZE*0.35, 0, Math.PI*2); ctx.fill();
-                
-                if(id === selfId) {
-                    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
-                    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-                    ctx.beginPath(); ctx.arc(cx, cy, CELL_SIZE*0.6, 0, Math.PI*2); ctx.fill();
+            // 渲染周围 3x3 个区块
+            for(let dy=-1; dy<=1; dy++) {
+                for(let dx=-1; dx<=1; dx++) {
+                    let k = `${cx+dx},${cy+dy}`;
+                    if(chunks[k]) drawChunk(chunks[k]);
                 }
             }
-            ctx.restore(); 
-
-            // 迷雾与UI
-            let playerScreenX = myRender.x + CELL_SIZE/2 - camera.x;
-            let playerScreenY = myRender.y + CELL_SIZE/2 - camera.y;
-            
-            let grd = ctx.createRadialGradient(playerScreenX, playerScreenY, CELL_SIZE*2.5, playerScreenX, playerScreenY, CELL_SIZE*8);
-            grd.addColorStop(0, "rgba(0,0,0,0)"); 
-            grd.addColorStop(1, "rgba(0,0,0,0.98)");
-            ctx.fillStyle = grd; ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-            drawArrow(playerScreenX, playerScreenY);
+            ctx.shadowBlur = 0;
         }
 
-        function drawArrow(px, py) {
-            let ex = gameState.endPoint.x * CELL_SIZE + CELL_SIZE/2 - camera.x;
-            let ey = gameState.endPoint.y * CELL_SIZE + CELL_SIZE/2 - camera.y;
-            let dx = ex - px, dy = ey - py;
-            let dist = Math.sqrt(dx*dx + dy*dy);
-            
-            if(dist > Math.min(canvas.width, canvas.height)/2) {
-                let angle = Math.atan2(dy, dx);
-                let radius = Math.min(canvas.width, canvas.height)/2 - 50;
-                let arrowX = canvas.width/2 + Math.cos(angle) * radius;
-                let arrowY = canvas.height/2 + Math.sin(angle) * radius;
-                ctx.save();
-                ctx.translate(arrowX, arrowY);
-                ctx.rotate(angle);
-                ctx.fillStyle = '#2ecc71';
+        function drawChunk(chunk) {
+            const cs = config.CELL_SIZE;
+            const ox = chunk.cx * config.CHUNK_SIZE * cs;
+            const oy = chunk.cy * config.CHUNK_SIZE * cs;
+
+            ctx.beginPath();
+            chunk.grid.forEach(row => {
+                row.forEach(c => {
+                    let x = ox + c.x * cs;
+                    let y = oy + c.y * cs;
+                    if(c.walls.top) { ctx.moveTo(x,y); ctx.lineTo(x+cs,y); }
+                    if(c.walls.left) { ctx.moveTo(x,y); ctx.lineTo(x,y+cs); }
+                    if(c.walls.right && c.x===config.CHUNK_SIZE-1) { ctx.moveTo(x+cs,y); ctx.lineTo(x+cs,y+cs); }
+                    if(c.walls.bottom && c.y===config.CHUNK_SIZE-1) { ctx.moveTo(x,y+cs); ctx.lineTo(x+cs,y+cs); }
+                });
+            });
+            ctx.stroke();
+
+            // 物品
+            ctx.fillStyle = '#f1c40f';
+            ctx.shadowColor = '#f1c40f';
+            ctx.shadowBlur = 10;
+            chunk.items.forEach(item => {
+                let ix = ox + item.x * cs + cs/2;
+                let iy = oy + item.y * cs + cs/2;
                 ctx.beginPath();
-                ctx.moveTo(12, 0); ctx.lineTo(-12, 12); ctx.lineTo(-12, -12); ctx.fill();
-                ctx.restore();
+                ctx.arc(ix, iy, 4, 0, Math.PI*2); // 简单的发光圆点
+                ctx.fill();
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function drawPlayers() {
+            for(let id in players) {
+                let p = players[id];
+                if(p.isDead) continue;
+
+                let x, y;
+                if(id === selfId) {
+                    x = rPos.x + 20; 
+                    y = rPos.y + 20;
+                } else {
+                    x = p.x * config.CELL_SIZE + 20;
+                    y = p.y * config.CELL_SIZE + 20;
+                }
+
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = p.color;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(x, y, 12, 0, Math.PI*2);
+                ctx.fill();
+
+                if(id === selfId) {
+                    ctx.fillStyle = '#fff';
+                    ctx.shadowBlur = 0;
+                    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+                }
             }
         }
 
-        function gameLoop() {
-            draw();
-            requestAnimationFrame(gameLoop);
+        // --- 核心修复：剪纸法迷雾 ---
+        function drawFogSolid() {
+            // 使用“奇偶规则” (evenodd) 填充：
+            // 画一个全屏矩形，再画一个反向的圆，重叠部分会被“扣除”
+            
+            ctx.fillStyle = 'rgba(0, 0, 0, 1)'; // 纯黑
+            ctx.beginPath();
+            // 1. 全屏矩形 (顺时针)
+            ctx.rect(0, 0, cvs.width, cvs.height);
+            
+            // 2. 视野圆 (逆时针 - 重要！)
+            // 视野圆心就是屏幕中心
+            const cx = cvs.width / 2;
+            const cy = cvs.height / 2;
+            const r = config.CELL_SIZE * 6; // 视野半径
+
+            ctx.arc(cx, cy, r, 0, Math.PI * 2, true);
+            
+            // 3. 填充 (奇偶规则会使得圆内部不填充)
+            ctx.fill('evenodd');
+
+            // 4. 加个半透明边缘让过渡自然点 (可选)
+            ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+            ctx.lineWidth = 40;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r + 20, 0, Math.PI*2);
+            ctx.stroke();
         }
 
-        // 🔥 修复1：核心移动逻辑 (带碰撞检测)
-        function attemptMove(dir) {
-            if(!selfId || !gameState.players[selfId] || gameState.winner) return;
+        function drawMini() {
+            mctx.fillStyle = '#000';
+            mctx.fillRect(0,0,120,120);
             
-            // 节流检查：防止发包太快
-            const now = Date.now();
-            if (now - lastMoveTime < MOVE_INTERVAL) return;
+            if(!me) return;
+            
+            const range = 30; // 范围
+            const scale = 120 / range;
+            const cx = me.x;
+            const cy = me.y;
 
-            let p = gameState.players[selfId];
-            let cx = p.gridX;
-            let cy = p.gridY;
-
-            // 边界检查
-            if (dir === 'up' && cy <= 0) return failMove();
-            if (dir === 'down' && cy >= gridSize - 1) return failMove();
-            if (dir === 'left' && cx <= 0) return failMove();
-            if (dir === 'right' && cx >= gridSize - 1) return failMove();
-
-            // 🔥 关键修复：本地碰撞检测
-            // 必须检查当前格子的墙壁，确认没有墙才能走
-            let cell = gameState.maze[cy][cx];
-            if (!cell) return; // 还没加载好
-
-            let blocked = false;
-            if (dir === 'up') blocked = cell.walls.top;
-            else if (dir === 'down') blocked = cell.walls.bottom;
-            else if (dir === 'left') blocked = cell.walls.left;
-            else if (dir === 'right') blocked = cell.walls.right;
-
-            if (blocked) {
-                return failMove(); // 撞墙了，不走，不发包
+            for(let id in players) {
+                let p = players[id];
+                if(p.isDead) continue;
+                let dx = p.x - cx;
+                let dy = p.y - cy;
+                if(Math.abs(dx) < range/2 && Math.abs(dy) < range/2) {
+                    mctx.fillStyle = (id===selfId) ? '#fff' : p.color;
+                    mctx.fillRect(60 + dx*scale - 2, 60 + dy*scale - 2, 4, 4);
+                }
             }
-
-            // 预判移动 (为了顺滑)
-            if (dir === 'up') p.gridY--;
-            else if (dir === 'down') p.gridY++;
-            else if (dir === 'left') p.gridX--;
-            else if (dir === 'right') p.gridX++;
-
-            lastMoveTime = now; // 更新时间戳
-            socket.emit('playerMoveAction', dir);
-            
-            // 成功的微震动
-            if(navigator.vibrate) navigator.vibrate(10);
         }
 
-        function failMove() {
-            // 撞墙反馈 (稍微强一点的震动)
-            if(navigator.vibrate) navigator.vibrate(30);
-        }
-
-        // --- 手势与按键 ---
-        let touchStartX = 0, touchStartY = 0;
-        document.body.addEventListener('touchstart', e => {
-            touchStartX = e.changedTouches[0].screenX;
-            touchStartY = e.changedTouches[0].screenY;
-        }, {passive: false});
-
-        document.body.addEventListener('touchmove', e => e.preventDefault(), {passive: false});
-
-        document.body.addEventListener('touchend', e => {
-            let dx = e.changedTouches[0].screenX - touchStartX;
-            let dy = e.changedTouches[0].screenY - touchStartY;
-            if(Math.abs(dx) > 30 || Math.abs(dy) > 30) {
-                if(Math.abs(dx) > Math.abs(dy)) attemptMove(dx > 0 ? 'right' : 'left');
-                else attemptMove(dy > 0 ? 'down' : 'up');
+        // --- 控制 ---
+        let lastTime = 0;
+        function move(d) {
+            if(me.isDead) return;
+            let now = Date.now();
+            if(now - lastTime > 80) {
+                lastTime = now;
+                socket.emit('move', d);
             }
-        });
-
-        const bindKey = (id, dir) => {
-            let btn = document.getElementById(id);
-            // 支持长按：使用 setInterval 模拟连发 (简单方案)
-            // 更好的方案是监听 touchstart/end 配合 requestAnimationFrame，
-            // 但这里直接复用 attemptMove 的时间节流即可，所以只需高频触发。
-            let intervalId = null;
-            
-            const startMove = (e) => {
-                e.preventDefault(); e.stopPropagation();
-                btn.style.background = '#f1c40f'; btn.style.color = '#000';
-                attemptMove(dir); // 立即触发一次
-                // 开启连发
-                intervalId = setInterval(() => attemptMove(dir), 50); 
-            };
-            
-            const stopMove = (e) => {
-                if(e) { e.preventDefault(); e.stopPropagation(); }
-                btn.style.background = 'rgba(255,255,255,0.15)'; btn.style.color = '#fff';
-                clearInterval(intervalId);
-            };
-
-            btn.addEventListener('touchstart', startMove);
-            btn.addEventListener('touchend', stopMove);
-            btn.addEventListener('mousedown', startMove); // 兼容鼠标点击
-            btn.addEventListener('mouseup', stopMove);
-            btn.addEventListener('mouseleave', stopMove);
-        };
-        
-        bindKey('vb-up', 'up'); bindKey('vb-down', 'down');
-        bindKey('vb-left', 'left'); bindKey('vb-right', 'right');
-
-        // 🔥 修复3：电脑端键盘支持长按
-        let keysPressed = {};
-        document.addEventListener('keydown', e => {
-            if(['w','a','s','d','ArrowUp','ArrowLeft','ArrowRight','ArrowDown'].includes(e.key)) {
-                keysPressed[e.key] = true;
-            }
-        });
-        document.addEventListener('keyup', e => {
-            keysPressed[e.key] = false;
-        });
-
-        // 在游戏循环中检查按键，实现平滑长按移动
-        function checkKeyboard() {
-            if(keysPressed['w'] || keysPressed['ArrowUp']) attemptMove('up');
-            if(keysPressed['s'] || keysPressed['ArrowDown']) attemptMove('down');
-            if(keysPressed['a'] || keysPressed['ArrowLeft']) attemptMove('left');
-            if(keysPressed['d'] || keysPressed['ArrowRight']) attemptMove('right');
         }
 
-        // Socket
-        socket.on('connect', () => { connStatus.innerText = "已连接"; connStatus.style.color = '#2ecc71'; });
-        socket.on('disconnect', () => { connStatus.innerText = "断开"; connStatus.style.color = '#e74c3c'; });
-        socket.on('init', d => { selfId = d.selfId; gameState = d.gameState; gridSize = d.gridSize; resize(); });
-        socket.on('newPlayer', p => { gameState.players[p.id] = p; });
-        socket.on('playerMoved', d => { 
-            if(gameState.players[d.id]) { 
-                gameState.players[d.id].gridX = d.gridX; 
-                gameState.players[d.id].gridY = d.gridY; 
-            } 
+        window.addEventListener('keydown', e => {
+            let k = e.key.toLowerCase();
+            if(['w','arrowup'].includes(k)) move('up');
+            if(['s','arrowdown'].includes(k)) move('down');
+            if(['a','arrowleft'].includes(k)) move('left');
+            if(['d','arrowright'].includes(k)) move('right');
         });
-        socket.on('playerDisconnected', id => { delete gameState.players[id]; delete playersRender[id]; });
-        socket.on('gameWon', d => {
-            let name = (d.winnerId === selfId) ? "你" : "对手";
-            document.getElementById('win-text').innerText = `${name} 赢了!`;
-            msgOverlay.style.opacity = 1;
-        });
-        socket.on('gameRestart', newState => { gameState = newState; msgOverlay.style.opacity = 0; });
 
-        window.onresize = resize;
-        
-        // 启动循环
-        function mainLoop() {
-            checkKeyboard(); // 每一帧检查键盘
-            draw();
-            requestAnimationFrame(mainLoop);
-        }
-        mainLoop();
+        document.querySelectorAll('.btn').forEach(b => {
+            const d = b.dataset.d;
+            const h = (e) => { e.preventDefault(); move(d); };
+            b.addEventListener('touchstart', h);
+            b.addEventListener('mousedown', h);
+        });
+
+        // 启动渲染
+        loop();
 
     </script>
 </body>
