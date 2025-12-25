@@ -3,117 +3,116 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>生存迷宫 Pro</title>
+    <title>深渊迷宫: 觉醒</title>
     <style>
-        :root { --bg: #0b0c10; --ui: rgba(31, 40, 51, 0.9); --accent: #66fcf1; --warn: #f50057; }
-        body { margin: 0; background: var(--bg); overflow: hidden; font-family: 'Consolas', monospace; touch-action: none; user-select: none; }
+        :root { --bg: #050505; --ui: rgba(20, 25, 30, 0.9); --neon: #00f3ff; --warn: #ff0055; }
+        body { margin: 0; background: var(--bg); overflow: hidden; font-family: 'Segoe UI', monospace; touch-action: none; user-select: none; }
         canvas { display: block; position: absolute; top: 0; left: 0; }
 
-        /* UI Overlay */
-        #ui-layer {
-            position: absolute; inset: 0; pointer-events: none; z-index: 10;
-            display: flex; flex-direction: column; justify-content: space-between; padding: 15px;
+        /* UI 布局 */
+        #hud { position: absolute; inset: 0; pointer-events: none; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; z-index: 10; }
+        
+        /* 顶部面板 */
+        .top-bar { display: flex; justify-content: space-between; align-items: flex-start; }
+        
+        .radar-wrap {
+            width: 140px; height: 140px; background: #000; border-radius: 50%;
+            border: 2px solid #333; position: relative; overflow: hidden;
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.1);
         }
+        #mini { width: 100%; height: 100%; opacity: 0.8; }
+        
+        .info-panel {
+            text-align: right; background: var(--ui); padding: 12px 20px;
+            border-radius: 8px; border-right: 4px solid var(--neon);
+            backdrop-filter: blur(5px);
+        }
+        .my-name { font-size: 16px; font-weight: bold; color: #fff; margin-bottom: 5px; text-shadow: 0 0 10px var(--neon); }
+        .lb-row { font-size: 12px; color: #888; margin-top: 3px; display: flex; justify-content: flex-end; gap: 10px; }
+        .lb-row.me { color: #fff; font-weight: bold; }
 
-        /* Top HUD */
-        .hud-top { display: flex; justify-content: space-between; align-items: flex-start; }
-        .radar-frame {
-            width: 130px; height: 130px; background: #000; border: 2px solid #45a29e;
-            border-radius: 50%; position: relative; overflow: hidden;
-            box-shadow: 0 0 15px rgba(102, 252, 241, 0.2);
+        /* 底部状态 */
+        .btm-bar { align-self: center; width: 100%; max-width: 450px; margin-bottom: 30px; text-align: center; }
+        .energy-frame {
+            height: 16px; background: #111; border: 1px solid #444; border-radius: 8px;
+            padding: 2px; overflow: hidden; position: relative;
         }
-        .stats-panel {
-            background: var(--ui); padding: 10px 15px; border-radius: 4px;
-            border-left: 3px solid var(--accent); text-align: right;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+        .energy-fill {
+            height: 100%; width: 100%; background: linear-gradient(90deg, var(--neon), #0066ff);
+            border-radius: 6px; transition: width 0.2s;
+            box-shadow: 0 0 15px var(--neon);
         }
-        .stat-val { color: #fff; font-size: 14px; font-weight: bold; text-shadow: 0 0 5px var(--accent); }
-        .lb-item { font-size: 11px; color: #888; margin-top: 2px; }
-        .lb-item.me { color: #fff; font-weight: bold; }
+        .tip { font-size: 10px; color: #666; margin-top: 5px; letter-spacing: 2px; }
 
-        /* Bottom HUD */
-        .hud-btm { align-self: center; width: 100%; max-width: 400px; margin-bottom: 40px; position: relative; }
-        .energy-bar-bg {
-            height: 12px; background: #1f2833; border: 1px solid #45a29e; border-radius: 6px;
-            overflow: hidden; padding: 2px;
-        }
-        .energy-bar-fill {
-            height: 100%; width: 100%; background: var(--accent); border-radius: 4px;
-            transition: width 0.1s linear, background 0.3s;
-            box-shadow: 0 0 10px var(--accent);
-        }
-        .sprint-tip { 
-            position: absolute; bottom: -25px; width: 100%; text-align: center; 
-            font-size: 10px; color: #666; animation: blink 2s infinite; 
-        }
-
-        /* Death Screen */
-        #death-screen {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 100;
+        /* 死亡弹窗 */
+        #dead-ui {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 100;
             display: none; flex-direction: column; align-items: center; justify-content: center;
             pointer-events: auto;
         }
-        .death-msg { font-size: 40px; color: var(--warn); letter-spacing: 5px; text-shadow: 0 0 20px var(--warn); margin-bottom: 30px; }
-        .btn-restart {
-            background: transparent; color: #fff; border: 1px solid var(--accent); padding: 12px 40px;
-            font-size: 16px; cursor: pointer; transition: 0.2s; letter-spacing: 2px;
+        h1 { color: var(--warn); font-size: 40px; margin-bottom: 20px; letter-spacing: 5px; text-shadow: 0 0 30px var(--warn); }
+        .btn {
+            background: transparent; color: #fff; border: 1px solid #fff; padding: 15px 50px;
+            font-size: 18px; cursor: pointer; transition: 0.2s; text-transform: uppercase;
         }
-        .btn-restart:hover { background: var(--accent); color: #000; box-shadow: 0 0 20px var(--accent); }
+        .btn:hover { background: #fff; color: #000; box-shadow: 0 0 30px #fff; }
 
-        /* Controls */
-        #v-controls {
-            position: absolute; bottom: 20px; left: 20px; display: grid; gap: 8px;
-            grid-template-columns: repeat(3, 60px); grid-template-rows: repeat(3, 60px);
-            pointer-events: auto; opacity: 0.6;
+        /* 虚拟按键 */
+        #pads {
+            position: absolute; bottom: 30px; left: 30px; gap: 8px;
+            display: grid; grid-template-columns: repeat(3, 65px); grid-template-rows: repeat(3, 65px);
+            pointer-events: auto; opacity: 0.5; transition: opacity 0.3s;
         }
-        .v-btn { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; color: #fff; display: flex; justify-content: center; align-items: center; font-size: 24px; }
-        .v-btn:active { background: var(--accent); color: #000; }
+        #pads:active { opacity: 0.9; }
+        .pad {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 15px; display: flex; justify-content: center; align-items: center;
+            color: #fff; font-size: 24px; user-select: none;
+        }
+        .pad:active { background: var(--neon); color: #000; }
         .u { grid-column: 2; grid-row: 1; } .l { grid-column: 1; grid-row: 2; }
         .r { grid-column: 3; grid-row: 2; } .d { grid-column: 2; grid-row: 3; }
-        .sprint-btn { 
-            position: absolute; bottom: 40px; right: 30px; width: 80px; height: 80px; 
-            border-radius: 50%; border: 2px solid var(--accent); background: rgba(0,0,0,0.5);
-            color: var(--accent); display: flex; justify-content: center; align-items: center; font-size: 12px; font-weight: bold; pointer-events: auto;
+        
+        .sprint-icon {
+            position: absolute; bottom: 50px; right: 40px; width: 70px; height: 70px;
+            border-radius: 50%; border: 2px solid var(--neon); color: var(--neon);
+            display: flex; justify-content: center; align-items: center; font-size: 30px;
+            background: rgba(0,0,0,0.5); pointer-events: auto;
         }
-        .sprint-btn:active { background: var(--accent); color: #000; }
-
-        @keyframes blink { 50% { opacity: 0.5; } }
+        .sprint-icon:active { background: var(--neon); color: #000; }
     </style>
 </head>
 <body>
 
     <canvas id="game"></canvas>
 
-    <div id="ui-layer">
-        <div class="hud-top">
-            <div class="radar-frame">
-                <canvas id="mini"></canvas>
-            </div>
-            <div class="stats-panel">
-                <div class="stat-val">SCORE: <span id="ui-score">0</span></div>
-                <div id="ui-lb"></div>
+    <div id="hud">
+        <div class="top-bar">
+            <div class="radar-wrap"><canvas id="mini"></canvas></div>
+            <div class="info-panel">
+                <div class="my-name" id="ui-name">CONNECTING...</div>
+                <div style="font-size:12px;color:#ccc;margin-bottom:5px">SCORE: <span id="ui-score">0</span></div>
+                <div id="lb-box"></div>
             </div>
         </div>
 
-        <div class="hud-btm">
-            <div class="energy-bar-bg">
-                <div class="energy-bar-fill" id="ui-energy"></div>
-            </div>
-            <div class="sprint-tip">[SHIFT] TO SPRINT</div>
+        <div class="btm-bar">
+            <div class="energy-frame"><div class="energy-fill" id="energy"></div></div>
+            <div class="tip">HOLD SHIFT TO SPRINT</div>
         </div>
 
-        <div id="v-controls">
-            <div class="v-btn u" data-d="up">▲</div>
-            <div class="v-btn l" data-d="left">◀</div>
-            <div class="v-btn d" data-d="down">▼</div>
-            <div class="v-btn r" data-d="right">▶</div>
+        <div id="pads">
+            <div class="pad u" data-d="up">▲</div>
+            <div class="pad l" data-d="left">◀</div>
+            <div class="pad d" data-d="down">▼</div>
+            <div class="pad r" data-d="right">▶</div>
         </div>
-        <div class="sprint-btn" id="btn-sprint">⚡</div>
+        <div class="sprint-icon" id="btn-sprint">⚡</div>
     </div>
 
-    <div id="death-screen">
-        <div class="death-msg">SIGNAL LOST</div>
-        <button class="btn-restart" onclick="socket.emit('respawn')">REBOOT SYSTEM</button>
+    <div id="dead-ui">
+        <h1>SYSTEM FAILURE</h1>
+        <button class="btn" onclick="socket.emit('respawn')">REBOOT</button>
     </div>
 
     <script src="/socket.io/socket.io.js"></script>
@@ -124,33 +123,31 @@
         const mcvs = document.getElementById('mini');
         const mctx = mcvs.getContext('2d');
 
-        // --- 核心变量 ---
+        // 配置与状态
         let config = { CELL_SIZE: 40, CHUNK_SIZE: 15 };
-        let selfId = null;
-        let connected = false;
-        
-        // 游戏状态
-        let me = { x: 0, y: 0, energy: 100, isDead: false, score: 0 }; // 真实服务器数据
-        let localPos = { x: 0, y: 0 }; // 客户端预测坐标 (非常重要)
+        let me = { x: 0, y: 0, energy: 100, isDead: false, score: 0, skin: {} };
+        // 客户端预测坐标
+        let localPos = { x: 0, y: 0 };
         let cam = { x: 0, y: 0 };
         
         let chunks = {};
         let players = {};
-        let particles = [];
-
-        // 输入状态
+        let selfId = null;
+        let connected = false;
+        
+        // 输入
         let keys = { up:false, down:false, left:false, right:false, shift:false };
-        let lastMoveTime = 0;
+        let lastMove = 0;
 
         function resize() {
             cvs.width = window.innerWidth;
             cvs.height = window.innerHeight;
-            mcvs.width = 130; mcvs.height = 130;
+            mcvs.width = 140; mcvs.height = 140;
         }
         window.addEventListener('resize', resize);
         resize();
 
-        // --- 网络处理 ---
+        // --- Socket ---
         socket.on('init', (d) => {
             selfId = d.selfId;
             config = d.config;
@@ -160,39 +157,43 @@
         socket.on('state', (state) => {
             if(!connected) return;
 
-            // 1. 地图增量更新
+            // 地图
             state.chunks.forEach(c => chunks[`${c.cx},${c.cy}`] = c);
-            
-            // 2. 玩家更新
             players = state.players;
             
-            // 3. 自身状态同步与纠偏 (Reconciliation)
-            const serverMe = state.me;
-            
-            // 如果是第一次接收，或者偏差太大(>1格)，强制拉回
-            const dist = Math.abs(serverMe.x * config.CELL_SIZE - localPos.x) + Math.abs(serverMe.y * config.CELL_SIZE - localPos.y);
-            if (localPos.x === 0 || dist > config.CELL_SIZE * 1.5) {
-                localPos.x = serverMe.x * config.CELL_SIZE;
-                localPos.y = serverMe.y * config.CELL_SIZE;
+            // 自身同步
+            const sm = state.me;
+            // 首次同步位置
+            if(localPos.x === 0 && localPos.y === 0) {
+                localPos.x = sm.x * config.CELL_SIZE;
+                localPos.y = sm.y * config.CELL_SIZE;
+            } else {
+                // 距离纠偏 (如果服务器判定位置和本地预测差距过大，强制拉回)
+                const sx = sm.x * config.CELL_SIZE;
+                const sy = sm.y * config.CELL_SIZE;
+                const dist = Math.abs(sx - localPos.x) + Math.abs(sy - localPos.y);
+                if(dist > config.CELL_SIZE * 2) {
+                    localPos.x = sx; localPos.y = sy;
+                }
             }
-            // 总是同步非位置属性
-            me.energy = serverMe.energy;
-            me.score = serverMe.score;
-            me.isDead = serverMe.isDead;
+            // 同步非物理属性
+            me.energy = sm.energy;
+            me.score = sm.score;
+            me.isDead = sm.isDead;
+            me.skin = sm.skin;
 
             updateUI(state.lb);
         });
 
         socket.on('item_gone', (d) => {
-            if(chunks[d.key]) chunks[d.key].items = chunks[d.key].items.filter(i => i.id !== d.id);
+            if(chunks[d.key]) chunks[d.key].items = chunks[d.key].items.filter(i=>i.id!==d.id);
         });
 
-        // --- 核心：客户端预测移动 ---
+        // --- 逻辑与输入 ---
         function attemptMove() {
             if(me.isDead || !connected) return;
-
             const now = Date.now();
-            if(now - lastMoveTime < 80) return; // 限制频率与服务器一致
+            if(now - lastMove < 80) return;
 
             let dir = null;
             if(keys.up) dir = 'up';
@@ -201,32 +202,23 @@
             else if(keys.right) dir = 'right';
 
             if(dir) {
-                // 1. 发送给服务器
                 socket.emit('move', { dir, sprint: keys.shift });
-                lastMoveTime = now;
-
-                // 2. 客户端立即执行逻辑 (预测)
-                // 只有不撞墙才移动
-                if (!checkCollision(localPos.x, localPos.y, dir)) {
-                    const step = config.CELL_SIZE; // 每次走一格
-                    if(dir === 'up') localPos.y -= step;
-                    if(dir === 'down') localPos.y += step;
-                    if(dir === 'left') localPos.x -= step;
-                    if(dir === 'right') localPos.x += step;
-                    
-                    // 产生粒子
-                    if(keys.shift && me.energy > 5) {
-                        for(let i=0; i<3; i++) particles.push(new Particle(localPos.x+20, localPos.y+20, '#66fcf1'));
-                    }
+                lastMove = now;
+                
+                // 客户端预测 (简单碰撞检测)
+                if(!checkCol(localPos.x, localPos.y, dir)) {
+                    const step = config.CELL_SIZE;
+                    if(dir==='up') localPos.y -= step;
+                    if(dir==='down') localPos.y += step;
+                    if(dir==='left') localPos.x -= step;
+                    if(dir==='right') localPos.x += step;
                 }
             }
         }
 
-        function checkCollision(px, py, dir) {
-            // 将像素坐标转为网格坐标
+        function checkCol(px, py, dir) {
             const gx = Math.round(px / config.CELL_SIZE);
             const gy = Math.round(py / config.CELL_SIZE);
-            
             const cx = Math.floor(gx / config.CHUNK_SIZE);
             const cy = Math.floor(gy / config.CHUNK_SIZE);
             const chunk = chunks[`${cx},${cy}`];
@@ -234,86 +226,70 @@
 
             const lx = ((gx % config.CHUNK_SIZE) + config.CHUNK_SIZE) % config.CHUNK_SIZE;
             const ly = ((gy % config.CHUNK_SIZE) + config.CHUNK_SIZE) % config.CHUNK_SIZE;
-            const cell = chunk.grid[ly][lx];
-
-            if(dir === 'up' && cell.walls.top) return true;
-            if(dir === 'down' && cell.walls.bottom) return true;
-            if(dir === 'left' && cell.walls.left) return true;
-            if(dir === 'right' && cell.walls.right) return true;
+            const c = chunk.grid[ly][lx];
+            
+            if(dir==='up' && c.walls.top) return true;
+            if(dir==='down' && c.walls.bottom) return true;
+            if(dir==='left' && c.walls.left) return true;
+            if(dir==='right' && c.walls.right) return true;
             return false;
         }
 
-        // --- 渲染系统 ---
-        function loop() {
-            requestAnimationFrame(loop);
-            
-            // 物理更新
+        // --- 渲染 ---
+        function draw() {
+            requestAnimationFrame(draw);
             attemptMove();
 
-            // 1. 背景
-            ctx.fillStyle = '#0b0c10';
+            ctx.fillStyle = '#050505';
             ctx.fillRect(0, 0, cvs.width, cvs.height);
 
-            // 2. 摄像机跟随 (平滑 Lerp)
-            // 目标是 localPos 的中心
-            const targetCamX = localPos.x + config.CELL_SIZE/2 - cvs.width/2;
-            const targetCamY = localPos.y + config.CELL_SIZE/2 - cvs.height/2;
-            cam.x += (targetCamX - cam.x) * 0.15;
-            cam.y += (targetCamY - cam.y) * 0.15;
+            // 摄像机平滑
+            const tx = localPos.x + config.CELL_SIZE/2 - cvs.width/2;
+            const ty = localPos.y + config.CELL_SIZE/2 - cvs.height/2;
+            cam.x += (tx - cam.x) * 0.1;
+            cam.y += (ty - cam.y) * 0.1;
 
-            // --- 世界渲染 ---
             ctx.save();
             ctx.translate(-cam.x, -cam.y);
 
-            // A. 绘制地网格
+            // 1. 网格
             drawGrid();
-
-            // B. 绘制迷宫 (带发光)
+            // 2. 迷宫
             drawMaze();
-
-            // C. 粒子
-            particles = particles.filter(p => p.life > 0);
-            particles.forEach(p => p.draw());
-
-            // D. 玩家
+            // 3. 玩家
             drawPlayers();
 
             ctx.restore();
 
-            // 3. 迷雾 (UI层下)
+            // 4. 迷雾
             drawFog();
-
-            // 4. 小地图
+            // 5. 小地图
             drawMini();
         }
 
         function drawGrid() {
-            // 优化：只画视野内的线
             const cs = config.CELL_SIZE;
-            const startX = Math.floor(cam.x / cs) * cs;
-            const startY = Math.floor(cam.y / cs) * cs;
-            
-            ctx.strokeStyle = '#1f2833';
+            const sx = Math.floor(cam.x/cs)*cs;
+            const sy = Math.floor(cam.y/cs)*cs;
+            ctx.strokeStyle = '#111';
             ctx.lineWidth = 1;
             ctx.beginPath();
-            for(let x = startX; x < cam.x + cvs.width; x += cs) {
-                ctx.moveTo(x, cam.y); ctx.lineTo(x, cam.y + cvs.height);
-            }
-            for(let y = startY; y < cam.y + cvs.height; y += cs) {
-                ctx.moveTo(cam.x, y); ctx.lineTo(cam.x + cvs.width, y);
-            }
+            for(let x=sx; x<cam.x+cvs.width; x+=cs) { ctx.moveTo(x,cam.y); ctx.lineTo(x,cam.y+cvs.height); }
+            for(let y=sy; y<cam.y+cvs.height; y+=cs) { ctx.moveTo(cam.x,y); ctx.lineTo(cam.x+cvs.width,y); }
             ctx.stroke();
         }
 
         function drawMaze() {
-            // 渲染可见区块
-            const cx = Math.floor((localPos.x) / (config.CHUNK_SIZE * config.CELL_SIZE));
-            const cy = Math.floor((localPos.y) / (config.CHUNK_SIZE * config.CELL_SIZE));
+            const cs = config.CELL_SIZE;
+            const px = localPos.x + 20;
+            const py = localPos.y + 20;
+            const cx = Math.floor(px / (cs * config.CHUNK_SIZE));
+            const cy = Math.floor(py / (cs * config.CHUNK_SIZE));
 
-            ctx.shadowBlur = 15;
-            ctx.shadowColor = '#45a29e';
-            ctx.strokeStyle = '#66fcf1';
-            ctx.lineWidth = 3;
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f3ff';
+            ctx.strokeStyle = '#00f3ff';
+            ctx.lineWidth = 2;
             ctx.lineCap = 'round';
 
             for(let dy=-1; dy<=1; dy++) {
@@ -333,139 +309,135 @@
             ctx.beginPath();
             chunk.grid.forEach(row => {
                 row.forEach(c => {
-                    const x = ox + c.x * cs;
-                    const y = oy + c.y * cs;
+                    const x = ox + c.x*cs, y = oy + c.y*cs;
                     if(c.walls.top) { ctx.moveTo(x,y); ctx.lineTo(x+cs,y); }
                     if(c.walls.left) { ctx.moveTo(x,y); ctx.lineTo(x,y+cs); }
-                    if(c.walls.right && c.x === config.CHUNK_SIZE-1) { ctx.moveTo(x+cs,y); ctx.lineTo(x+cs,y+cs); }
-                    if(c.walls.bottom && c.y === config.CHUNK_SIZE-1) { ctx.moveTo(x,y+cs); ctx.lineTo(x+cs,y+cs); }
+                    if(c.walls.right && c.x===config.CHUNK_SIZE-1) { ctx.moveTo(x+cs,y); ctx.lineTo(x+cs,y+cs); }
+                    if(c.walls.bottom && c.y===config.CHUNK_SIZE-1) { ctx.moveTo(x,y+cs); ctx.lineTo(x+cs,y+cs); }
                 });
             });
             ctx.stroke();
 
-            // 物品
-            ctx.fillStyle = '#f50057';
-            ctx.shadowColor = '#f50057';
-            ctx.shadowBlur = 10;
+            // 物品 (心跳动画)
+            const pulse = 1 + Math.sin(Date.now()/200)*0.2;
+            ctx.fillStyle = '#ff0055';
+            ctx.shadowColor = '#ff0055';
+            ctx.shadowBlur = 15;
             chunk.items.forEach(i => {
-                const ix = ox + i.x * cs + cs/2;
-                const iy = oy + i.y * cs + cs/2;
-                const s = 4 + Math.sin(Date.now()/200)*2;
-                ctx.beginPath(); ctx.arc(ix, iy, s, 0, Math.PI*2); ctx.fill();
+                const ix = ox + i.x*cs + cs/2;
+                const iy = oy + i.y*cs + cs/2;
+                ctx.beginPath();
+                ctx.arc(ix, iy, 5 * pulse, 0, Math.PI*2);
+                ctx.fill();
             });
             ctx.shadowBlur = 0;
         }
 
         function drawPlayers() {
-            // 画别人
+            // 画其他人
             for(let id in players) {
                 if(id === selfId) continue;
-                let p = players[id];
-                if(p.isDead) continue;
-                
-                const px = p.x * config.CELL_SIZE + 20;
-                const py = p.y * config.CELL_SIZE + 20;
-                
-                ctx.fillStyle = p.color;
-                ctx.shadowColor = p.color;
-                ctx.shadowBlur = 10;
-                ctx.beginPath(); ctx.arc(px, py, 12, 0, Math.PI*2); ctx.fill();
+                drawOnePlayer(players[id], false);
             }
-
-            // 画自己 (localPos)
-            if(!me.isDead) {
-                const px = localPos.x + 20;
-                const py = localPos.y + 20;
-                
-                ctx.fillStyle = '#fff';
-                ctx.shadowColor = '#fff';
-                ctx.shadowBlur = 20;
-                ctx.beginPath(); ctx.arc(px, py, 12, 0, Math.PI*2); ctx.fill();
-                
-                // 箭头指示
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 2;
-                ctx.beginPath(); 
-                ctx.moveTo(px, py-6); ctx.lineTo(px+4, py+4); ctx.lineTo(px-4, py+4); ctx.closePath();
-                ctx.stroke();
+            // 画自己
+            if(!me.isDead && me.skin) {
+                // 构造一个临时的渲染对象，位置用本地预测的，皮肤用服务器给的
+                const renderMe = { ...me, x: localPos.x/config.CELL_SIZE, y: localPos.y/config.CELL_SIZE };
+                drawOnePlayer(renderMe, true);
             }
-            ctx.shadowBlur = 0;
         }
 
-        // 稳健的迷雾 (剪纸法)
-        function drawFog() {
-            const r = config.CELL_SIZE * 6 * (me.energy > 20 ? 1 : 0.6); // 低能量视野变小
-            const cx = cvs.width / 2;
-            const cy = cvs.height / 2;
-
-            ctx.fillStyle = 'rgba(0,0,0,0.95)';
-            ctx.beginPath();
-            ctx.rect(0, 0, cvs.width, cvs.height); // 全屏黑
-            ctx.arc(cx, cy, r, 0, Math.PI*2, true); // 抠洞
-            ctx.fill('evenodd');
+        function drawOnePlayer(p, isMe) {
+            if(p.isDead || !p.skin) return;
+            const x = p.x * config.CELL_SIZE + 20;
+            const y = p.y * config.CELL_SIZE + 20;
             
-            // 边缘光晕
+            // 外发光
+            ctx.shadowColor = p.skin.glow || '#fff';
+            ctx.shadowBlur = 20;
+            
+            // 主体
+            ctx.fillStyle = p.skin.color || '#fff';
+            ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI*2); ctx.fill();
+            
+            // 核心
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = p.skin.coreColor || '#fff';
+            ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI*2); ctx.fill();
+
+            // 名字
+            if(!isMe) {
+                ctx.fillStyle = '#fff';
+                ctx.font = '10px Consolas';
+                ctx.textAlign = 'center';
+                ctx.fillText(p.skin.name || '???', x, y - 18);
+            }
+        }
+
+        function drawFog() {
+            const r = config.CELL_SIZE * 6 * (me.energy > 20 ? 1 : 0.6);
+            const cx = cvs.width/2, cy = cvs.height/2;
+            
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.rect(0,0,cvs.width,cvs.height);
+            ctx.arc(cx, cy, r, 0, Math.PI*2, true);
+            ctx.fill('evenodd');
+
+            // 渐变边缘
             const g = ctx.createRadialGradient(cx, cy, r*0.8, cx, cy, r);
             g.addColorStop(0, 'rgba(0,0,0,0)');
-            g.addColorStop(1, 'rgba(0,0,0,0.8)');
+            g.addColorStop(1, 'rgba(0,0,0,1)');
             ctx.fillStyle = g;
             ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
         }
 
         function drawMini() {
-            mctx.fillStyle = '#000';
-            mctx.fillRect(0,0,130,130);
-            
-            const range = 30; // 格子数
-            const scale = 130 / range;
-            const centerGx = Math.floor(localPos.x / config.CELL_SIZE);
-            const centerGy = Math.floor(localPos.y / config.CELL_SIZE);
+            mctx.fillStyle = '#000'; mctx.fillRect(0,0,140,140);
+            const r = 30; // 范围
+            const s = 140/r;
+            const cx = localPos.x / config.CELL_SIZE;
+            const cy = localPos.y / config.CELL_SIZE;
 
-            // 队友点
             for(let id in players) {
-                let p = players[id];
+                const p = players[id];
                 if(p.isDead) continue;
-                let dx = p.x - centerGx;
-                let dy = p.y - centerGy;
-                if(dx*dx + dy*dy < (range/2)**2) {
-                    mctx.fillStyle = id===selfId ? '#fff' : p.color;
-                    mctx.fillRect(65 + dx*scale - 2, 65 + dy*scale - 2, 4, 4);
+                const dx = p.x - cx;
+                const dy = p.y - cy;
+                if(dx*dx + dy*dy < (r/2)**2) {
+                    mctx.fillStyle = (id===selfId) ? '#fff' : p.skin.color;
+                    mctx.fillRect(70 + dx*s - 2, 70 + dy*s - 2, 4, 4);
                 }
             }
         }
 
-        class Particle {
-            constructor(x, y, c) {
-                this.x = x; this.y = y; this.c = c;
-                this.life = 1;
-                this.vx = (Math.random()-0.5)*4;
-                this.vy = (Math.random()-0.5)*4;
-            }
-            draw() {
-                this.x += this.vx; this.y += this.vy; this.life -= 0.05;
-                ctx.globalAlpha = this.life;
-                ctx.fillStyle = this.c;
-                ctx.fillRect(this.x, this.y, 4, 4);
-                ctx.globalAlpha = 1;
-            }
-        }
-
         function updateUI(lb) {
-            const bar = document.getElementById('ui-energy');
-            bar.style.width = me.energy + '%';
-            bar.style.background = me.energy < 30 ? '#f50057' : '#66fcf1';
-            
+            // 能量条
+            const bar = document.getElementById('energy');
+            const pct = Math.max(0, me.energy);
+            bar.style.width = pct + '%';
+            if(pct < 30) bar.style.background = '#ff0055';
+            else bar.style.background = 'linear-gradient(90deg, #00f3ff, #0066ff)';
+
+            // 名字与分数
+            if(me.skin && me.skin.name) document.getElementById('ui-name').innerText = me.skin.name;
             document.getElementById('ui-score').innerText = Math.floor(me.score);
-            document.getElementById('death-screen').style.display = me.isDead ? 'flex' : 'none';
-            
+            document.getElementById('dead-ui').style.display = me.isDead ? 'flex' : 'none';
+
+            // 排行榜
+            const lbBox = document.getElementById('lb-box');
             if(lb) {
-                document.getElementById('ui-lb').innerHTML = lb.map((u, i) => 
-                    `<div class="lb-item ${u.isMe?'me':''}" style="color:${u.color}">#${i+1} ${u.score}</div>`
-                ).join('');
+                lbBox.innerHTML = lb.map((u,i) => `
+                    <div class="lb-row ${u.isMe?'me':''}">
+                        <span style="color:${u.color}">●</span>
+                        <span>#${i+1} ${u.name}</span>
+                        <span style="color:#fff">${u.score}</span>
+                    </div>
+                `).join('');
             }
         }
 
-        // --- 输入 ---
+        // --- 交互 ---
         window.addEventListener('keydown', e => {
             const k = e.key.toLowerCase();
             if(k==='w'||k==='arrowup') keys.up = true;
@@ -484,20 +456,16 @@
         });
 
         // 触摸
-        const bindTouch = (cls, key) => {
-            const el = document.querySelector('.'+cls);
-            el.addEventListener('touchstart', (e) => { e.preventDefault(); keys[key] = true; });
-            el.addEventListener('touchend', (e) => { e.preventDefault(); keys[key] = false; });
-            el.addEventListener('mousedown', (e) => { e.preventDefault(); keys[key] = true; });
-            el.addEventListener('mouseup', (e) => { e.preventDefault(); keys[key] = false; });
-        };
-        bindTouch('u','up'); bindTouch('d','down'); bindTouch('l','left'); bindTouch('r','right');
-        
-        const sprintBtn = document.getElementById('btn-sprint');
-        sprintBtn.addEventListener('touchstart', (e) => { e.preventDefault(); keys.shift = true; });
-        sprintBtn.addEventListener('touchend', (e) => { e.preventDefault(); keys.shift = false; });
+        document.querySelectorAll('.pad').forEach(b => {
+            const d = b.dataset.d;
+            b.addEventListener('touchstart', (e)=>{e.preventDefault(); keys[d]=true});
+            b.addEventListener('touchend', (e)=>{e.preventDefault(); keys[d]=false});
+        });
+        const sb = document.getElementById('btn-sprint');
+        sb.addEventListener('touchstart', (e)=>{e.preventDefault(); keys.shift=true});
+        sb.addEventListener('touchend', (e)=>{e.preventDefault(); keys.shift=false});
 
-        loop();
+        draw();
     </script>
 </body>
 </html>

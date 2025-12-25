@@ -3,7 +3,11 @@ const app = express();
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require("socket.io");
-const io = new Server(server, { cors: { origin: "*" }, pingInterval: 2000, pingTimeout: 5000 });
+const io = new Server(server, { 
+    cors: { origin: "*" },
+    pingInterval: 2000, 
+    pingTimeout: 5000 
+});
 const path = require('path');
 
 const PORT = 3000;
@@ -11,32 +15,44 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const mazeIo = io.of('/maze');
 
-// --- 专业游戏配置 ---
+// --- 核心配置 ---
 const CONFIG = {
-    CHUNK_SIZE: 15,        // 区块尺寸
-    CELL_SIZE: 40,         // 格子判定尺寸
-    TICK_RATE: 100,        // 逻辑帧率 (ms)
+    CHUNK_SIZE: 15,
+    CELL_SIZE: 40,
+    TICK_RATE: 100,        // 10Hz 逻辑刷新
+    MOVE_COOLDOWN: 80,     // 客户端发送频率限制
     
-    // 游戏性参数
-    BASE_SPEED: 1,         // 基础移动距离(格)
-    SPRINT_MULT: 2,        // 冲刺倍率
-    ENERGY_DECAY: 0.8,     // 正常衰减
-    SPRINT_COST: 4,        // 冲刺额外消耗
-    ITEM_ENERGY: 25,
+    // 平衡性参数
+    SPAWN_RADIUS: 5,       // 出生半径(Chunk数)
+    ENERGY_DECAY: 0.6,     // 能量衰减速度
+    ITEM_ENERGY: 30,
     ITEM_SCORE: 50,
     
     // 系统参数
-    VIEW_DIST: 2,          // 视野半径 (Chunk数量)
-    GC_INTERVAL: 30000,    // GC 频率
-    CHUNK_LIFETIME: 60000  // 区块存活时间
+    GC_INTERVAL: 30000,    // 30秒清理一次内存
+    CHUNK_LIFETIME: 60000  // 60秒无人访问则销毁
 };
 
-// --- 内存数据库 ---
-// 结构: Key -> { data: ChunkData, lastAccessed: timestamp }
+// --- 内存数据 ---
 let chunks = new Map();
 let players = {}; 
 
-// --- 核心：地图生成与管理 ---
+// --- 辅助工具：随机颜色/昵称生成器 ---
+const ADJECTIVES = ["Neon", "Cyber", "Dark", "Hyper", "Void", "Solar", "Toxic"];
+const NOUNS = ["Runner", "Ghost", "Orb", "Core", "Spark", "Glitch", "Echo"];
+
+function generateIdentity() {
+    const hue = Math.floor(Math.random() * 360);
+    return {
+        // 随机皮肤参数
+        color: `hsl(${hue}, 80%, 60%)`,
+        glow: `hsl(${hue}, 90%, 50%)`,
+        coreColor: Math.random() > 0.5 ? '#fff' : `hsl(${(hue+180)%360}, 100%, 80%)`, // 互补色或白色核心
+        name: `${ADJECTIVES[Math.floor(Math.random()*ADJECTIVES.length)]}-${Math.floor(Math.random()*999)}`
+    };
+}
+
+// --- 地图系统 ---
 function getChunk(cx, cy) {
     const key = `${cx},${cy}`;
     if (chunks.has(key)) {
@@ -53,7 +69,7 @@ function generateChunk(cx, cy) {
     let grid = [];
     const size = CONFIG.CHUNK_SIZE;
     
-    // 1. 基础网格
+    // 1. 初始化全墙壁
     for (let y = 0; y < size; y++) {
         let row = [];
         for (let x = 0; x < size; x++) {
@@ -62,134 +78,126 @@ function generateChunk(cx, cy) {
         grid.push(row);
     }
 
-    // 2. 必通出口 (中心十字)
+    // 2. 强制打通中心十字 (保证连通性)
     const mid = Math.floor(size / 2);
     grid[0][mid].walls.top = 0;
     grid[size-1][mid].walls.bottom = 0;
     grid[mid][0].walls.left = 0;
     grid[mid][size-1].walls.right = 0;
 
-    // 3. DFS 迷宫生成
-    let visited = new Set();
-    function visit(x, y) {
-        visited.add(`${x},${y}`);
-        let dirs = [
-            { dx: 0, dy: -1, w: 'top', opp: 'bottom' },
-            { dx: 1, dy: 0, w: 'right', opp: 'left' },
-            { dx: 0, dy: 1, w: 'bottom', opp: 'top' },
-            { dx: -1, dy: 0, w: 'left', opp: 'right' }
-        ].sort(() => Math.random() - 0.5);
+    // 3. DFS 生成迷宫
+    let stack = [{x: mid, y: mid}];
+    let visited = new Set([`${mid},${mid}`]);
 
-        for (let d of dirs) {
-            let nx = x + d.dx, ny = y + d.dy;
-            if (nx >= 0 && nx < size && ny >= 0 && ny < size && !visited.has(`${nx},${ny}`)) {
-                grid[y][x].walls[d.w] = 0;
-                grid[ny][nx].walls[d.opp] = 0;
-                visit(nx, ny);
-            }
+    while(stack.length > 0) {
+        let curr = stack[stack.length-1];
+        let neighbors = [
+            {dx:0, dy:-1, w:'top', opp:'bottom'},
+            {dx:1, dy:0, w:'right', opp:'left'},
+            {dx:0, dy:1, w:'bottom', opp:'top'},
+            {dx:-1, dy:0, w:'left', opp:'right'}
+        ].filter(d => {
+            let nx = curr.x + d.dx, ny = curr.y + d.dy;
+            return nx >= 0 && nx < size && ny >= 0 && ny < size && !visited.has(`${nx},${ny}`);
+        });
+
+        if(neighbors.length > 0) {
+            let nextDir = neighbors[Math.floor(Math.random() * neighbors.length)];
+            let nx = curr.x + nextDir.dx, ny = curr.y + nextDir.dy;
+            
+            grid[curr.y][curr.x].walls[nextDir.w] = 0;
+            grid[ny][nx].walls[nextDir.opp] = 0;
+            
+            visited.add(`${nx},${ny}`);
+            stack.push({x: nx, y: ny});
+        } else {
+            stack.pop();
         }
     }
-    visit(mid, mid);
 
-    // 4. 地图腐蚀 (Erosion): 随机打通 10% 的墙壁，制造环路和广场，防止死路太令人沮丧
-    for(let y=1; y<size-1; y++) {
-        for(let x=1; x<size-1; x++) {
-            if(Math.random() < 0.1) {
-                grid[y][x].walls.right = 0;
-                grid[y][x+1].walls.left = 0;
-            }
-            if(Math.random() < 0.1) {
-                grid[y][x].walls.bottom = 0;
-                grid[y+1][x].walls.top = 0;
-            }
+    // 4. 腐蚀算法 (随机打通 15% 的墙，减少死胡同)
+    for(let i=0; i < (size*size)*0.15; i++) {
+        let rx = Math.floor(Math.random() * (size-2)) + 1;
+        let ry = Math.floor(Math.random() * (size-2)) + 1;
+        if(Math.random() > 0.5) {
+            grid[ry][rx].walls.right = 0;
+            grid[ry][rx+1].walls.left = 0;
+        } else {
+            grid[ry][rx].walls.bottom = 0;
+            grid[ry+1][rx].walls.top = 0;
         }
     }
 
     // 5. 物品生成
     let items = [];
-    // 离原点越远，物品越多/越好 (简单的风险奖励机制)
-    const dist = Math.abs(cx) + Math.abs(cy);
-    const count = 2 + Math.floor(Math.random() * 3) + (dist > 5 ? 2 : 0);
-    
-    for (let i = 0; i < count; i++) {
-        let rx = Math.floor(Math.random() * size);
-        let ry = Math.floor(Math.random() * size);
-        // 避开中心出生点
-        if (cx === 0 && cy === 0 && Math.abs(rx-mid) < 2 && Math.abs(ry-mid) < 2) continue;
-        
-        items.push({ 
-            id: Math.random().toString(36).substr(2, 9), 
-            x: rx, y: ry,
-            val: CONFIG.ITEM_ENERGY + (dist * 2) // 远处能量更多
-        });
+    const itemCount = Math.floor(Math.random() * 3) + 2;
+    for(let i=0; i<itemCount; i++) {
+        let ix = Math.floor(Math.random()*size);
+        let iy = Math.floor(Math.random()*size);
+        // 简单防重叠
+        if(!items.find(it => it.x === ix && it.y === iy)) {
+            items.push({ id: Math.random().toString(36).substr(2), x: ix, y: iy });
+        }
     }
 
     return { cx, cy, grid, items };
 }
 
-// --- 游戏逻辑 ---
+// --- 玩家逻辑 ---
 mazeIo.on('connection', (socket) => {
-    console.log(`[CONNECT] ${socket.id}`);
+    // 1. 随机出生点计算
+    const spawnCx = Math.floor((Math.random() - 0.5) * 2 * CONFIG.SPAWN_RADIUS);
+    const spawnCy = Math.floor((Math.random() - 0.5) * 2 * CONFIG.SPAWN_RADIUS);
+    // 确保出生区块存在
+    getChunk(spawnCx, spawnCy); 
     
+    // 全局坐标
+    const startX = spawnCx * CONFIG.CHUNK_SIZE + 7;
+    const startY = spawnCy * CONFIG.CHUNK_SIZE + 7;
+
+    const identity = generateIdentity();
+
     players[socket.id] = {
         id: socket.id,
-        x: Math.floor(CONFIG.CHUNK_SIZE / 2), // 全局格子坐标
-        y: Math.floor(CONFIG.CHUNK_SIZE / 2),
-        color: `hsl(${Math.floor(Math.random() * 360)}, 85%, 60%)`,
+        x: startX,
+        y: startY,
+        skin: identity, // 皮肤数据
         energy: 100,
         score: 0,
         isDead: false,
         lastAck: Date.now()
     };
 
-    // 发送初始化包
-    socket.emit('init', { selfId: socket.id, config: CONFIG });
-    
-    // 立即推送一次周围环境
-    pushStateTo(socket.id);
+    console.log(`Player join: ${identity.name} at [${spawnCx}, ${spawnCy}]`);
 
-    // 处理移动请求 (带防作弊和物理校验)
-    socket.on('move', (data) => {
+    socket.emit('init', { selfId: socket.id, config: CONFIG });
+    pushState(socket.id);
+
+    socket.on('move', (d) => {
         let p = players[socket.id];
         if (!p || p.isDead) return;
 
-        const { dir, sprint } = data;
-        const speed = sprint && p.energy > 5 ? CONFIG.SPRINT_MULT : 1;
-        
-        // 1. 计算目标位
+        // 防作弊：距离/速度检查 (简单的冷却检查)
+        const now = Date.now();
+        if (now - p.lastAck < CONFIG.MOVE_COOLDOWN - 20) return; // 允许少量误差
+        p.lastAck = now;
+
+        const { dir, sprint } = d;
         let tx = p.x, ty = p.y;
-        if (dir === 'up') ty -= 1;
-        else if (dir === 'down') ty += 1;
-        else if (dir === 'left') tx -= 1;
-        else if (dir === 'right') tx += 1;
+
+        if (dir === 'up') ty--;
+        else if (dir === 'down') ty++;
+        else if (dir === 'left') tx--;
+        else if (dir === 'right') tx++;
         else return;
 
-        // 2. 碰撞检测
-        const cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
-        const cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
-        const chunk = getChunk(cx, cy); // 确保当前区块已加载
-        
-        // 获取当前格子的墙壁信息
-        const lx = ((p.x % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
-        const ly = ((p.y % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
-        const cell = chunk.grid[ly][lx];
-
-        let blocked = false;
-        if (dir === 'up' && cell.walls.top) blocked = true;
-        if (dir === 'down' && cell.walls.bottom) blocked = true;
-        if (dir === 'left' && cell.walls.left) blocked = true;
-        if (dir === 'right' && cell.walls.right) blocked = true;
-
-        if (!blocked) {
+        // 碰撞检测
+        if (!isBlocked(p.x, p.y, dir)) {
             p.x = tx;
             p.y = ty;
-            
-            // 冲刺扣除额外能量
-            if(sprint && p.energy > 5) {
-                p.energy -= 2; 
-            }
-            
-            checkPickup(p);
+            // 冲刺消耗
+            if(sprint && p.energy > 5) p.energy -= 1.5;
+            checkItem(p);
         }
     });
 
@@ -198,20 +206,34 @@ mazeIo.on('connection', (socket) => {
         if (p) {
             p.energy = 100;
             p.isDead = false;
-            p.score = Math.floor(p.score * 0.7); // 死亡惩罚
-            // 稍微移动一下防止卡死
-            p.x += Math.floor(Math.random()*3) - 1;
-            p.y += Math.floor(Math.random()*3) - 1;
+            p.score = Math.floor(p.score * 0.5);
+            // 原地复活
         }
     });
 
     socket.on('disconnect', () => {
         delete players[socket.id];
-        console.log(`[DISCONNECT] ${socket.id}`);
     });
 });
 
-function checkPickup(p) {
+function isBlocked(gx, gy, dir) {
+    const cx = Math.floor(gx / CONFIG.CHUNK_SIZE);
+    const cy = Math.floor(gy / CONFIG.CHUNK_SIZE);
+    const chunk = getChunk(cx, cy); // 安全获取
+
+    // 转为局部坐标
+    const lx = ((gx % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+    const ly = ((gy % CONFIG.CHUNK_SIZE) + CONFIG.CHUNK_SIZE) % CONFIG.CHUNK_SIZE;
+    const cell = chunk.grid[ly][lx];
+
+    if (dir === 'up' && cell.walls.top) return true;
+    if (dir === 'down' && cell.walls.bottom) return true;
+    if (dir === 'left' && cell.walls.left) return true;
+    if (dir === 'right' && cell.walls.right) return true;
+    return false;
+}
+
+function checkItem(p) {
     const cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
     const cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
     const chunk = getChunk(cx, cy); // 安全获取
@@ -222,93 +244,76 @@ function checkPickup(p) {
     const idx = chunk.items.findIndex(i => i.x === lx && i.y === ly);
     if (idx !== -1) {
         const item = chunk.items[idx];
-        p.energy = Math.min(100, p.energy + item.val);
-        p.score += item.val * 2;
+        p.energy = Math.min(100, p.energy + CONFIG.ITEM_ENERGY);
+        p.score += CONFIG.ITEM_SCORE;
         chunk.items.splice(idx, 1);
-        // 广播移除事件给附近的玩家
         mazeIo.emit('item_gone', { key: `${cx},${cy}`, id: item.id });
     }
 }
 
-// --- AOI 广播系统 ---
-// 只发送玩家视野内的数据
-function pushStateTo(sid) {
+// AOI 广播 (只发送视野内的数据)
+function pushState(sid) {
     const p = players[sid];
     if (!p) return;
     const socket = mazeIo.sockets.get(sid);
     if (!socket) return;
 
-    // 1. 准备区块数据
+    // 视野范围：周围 2 格 Chunk
     const cx = Math.floor(p.x / CONFIG.CHUNK_SIZE);
     const cy = Math.floor(p.y / CONFIG.CHUNK_SIZE);
-    const chunksToSend = [];
+    let visibleChunks = [];
     
-    for (let dy = -CONFIG.VIEW_DIST; dy <= CONFIG.VIEW_DIST; dy++) {
-        for (let dx = -CONFIG.VIEW_DIST; dx <= CONFIG.VIEW_DIST; dx++) {
-            chunksToSend.push(getChunk(cx + dx, cy + dy));
+    for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+            visibleChunks.push(getChunk(cx + dx, cy + dy));
         }
     }
 
-    // 2. 筛选可见玩家 (AOI)
-    // 假设视野半径约等于 ChunkSize * ViewDist
-    const viewRange = CONFIG.CHUNK_SIZE * (CONFIG.VIEW_DIST + 1);
-    const visiblePlayers = {};
-    for (let oid in players) {
-        let op = players[oid];
-        if (Math.abs(op.x - p.x) <= viewRange && Math.abs(op.y - p.y) <= viewRange) {
-            visiblePlayers[oid] = {
-                id: op.id, x: op.x, y: op.y, 
-                color: op.color, isDead: op.isDead, score: op.score
-            };
+    // 玩家过滤
+    let visiblePlayers = {};
+    for (let pid in players) {
+        let target = players[pid];
+        // 简单距离判断 (50格以内)
+        if (Math.abs(target.x - p.x) < 50 && Math.abs(target.y - p.y) < 50) {
+            visiblePlayers[pid] = target;
         }
     }
 
-    // 3. 排行榜 (全局 Top 5)
-    const lb = Object.values(players)
+    // 排行榜
+    let lb = Object.values(players)
         .sort((a,b) => b.score - a.score)
         .slice(0, 5)
-        .map(u => ({ score: Math.floor(u.score), color: u.color, isMe: u.id === sid }));
+        .map(u => ({ name: u.skin.name, score: Math.floor(u.score), color: u.skin.color, isMe: u.id === sid }));
 
     socket.emit('state', {
         me: p,
+        chunks: visibleChunks,
         players: visiblePlayers,
-        chunks: chunksToSend,
         lb: lb
     });
 }
 
-// --- 主循环 ---
+// Game Loop
 setInterval(() => {
-    // 1. 游戏逻辑 Tick
     for (let id in players) {
         let p = players[id];
         if (!p.isDead) {
-            p.energy -= CONFIG.ENERGY_DECAY * (CONFIG.TICK_RATE / 1000);
-            if (p.energy <= 0) {
-                p.energy = 0;
-                p.isDead = true;
-            } else {
-                p.score += 0.1; // 存活奖励
-            }
+            p.energy -= CONFIG.ENERGY_DECAY * 0.1;
+            if (p.energy <= 0) { p.energy = 0; p.isDead = true; }
+            else p.score += 0.2; // 存活分
         }
-        // 2. 针对每个玩家进行 AOI 推送
-        pushStateTo(id);
+        pushState(id);
     }
 }, CONFIG.TICK_RATE);
 
-// --- GC 循环 ---
+// GC Loop
 setInterval(() => {
     const now = Date.now();
-    let cleaned = 0;
-    for (let [key, val] of chunks) {
-        if (now - val.lastAccessed > CONFIG.CHUNK_LIFETIME) {
-            chunks.delete(key);
-            cleaned++;
-        }
+    for (let [k, v] of chunks) {
+        if (now - v.lastAccessed > CONFIG.CHUNK_LIFETIME) chunks.delete(k);
     }
-    if (cleaned > 0) console.log(`[GC] Cleaned ${cleaned} chunks`);
 }, CONFIG.GC_INTERVAL);
 
 server.listen(PORT, () => {
-    console.log(`Professional Maze Server running on port ${PORT}`);
+    console.log(`Pro Maze Server on ${PORT}`);
 });
